@@ -1,29 +1,22 @@
 """
-Library/air_scanner.py - 802.11 Monitor Mode Over-The-Air Client Discovery.
-Uses /usr/local/bin/monitor0 for monitor mode capture and /usr/local/bin/managed0 for restoration.
+cafe_chameleon.scanners.air_scanner - 802.11 Monitor Mode Over-The-Air Client Discovery & Channel Hopper.
 """
 
 import logging
-import os
-import re
-import sys
+import threading
 import time
 
 # Suppress scapy warnings
 logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
 
-from .utils import (
-    _run,
-    log_info,
-    log_plus,
-    log_warning,
-    log_minus,
-    log_air
-)
-from .adapter import wait_for_carrier
+from cafe_chameleon.utils.signals import AirSkipInterrupt
+from cafe_chameleon.utils.process import _run
+from cafe_chameleon.ui.console import log_air
+from cafe_chameleon.network.sysfs import wait_for_carrier
+from cafe_chameleon.scanners.detector import auto_detect_network_params
 
 
-def get_monitor_interface(default_iface="wlan0"):
+def get_monitor_interface(default_iface: str = "wlan0") -> str:
     """Detects active monitor mode interface name (e.g. wlan0mon or wlan0)."""
     rc, out = _run(["ip", "-o", "link", "show"])
     for line in out.splitlines():
@@ -34,7 +27,7 @@ def get_monitor_interface(default_iface="wlan0"):
     return default_iface
 
 
-def set_monitor_mode(interface="wlan0"):
+def set_monitor_mode(interface: str = "wlan0") -> str:
     """
     Switches interface to 802.11 monitor mode using /usr/local/bin/monitor0.
     Returns the monitor interface name (e.g. wlan0mon or wlan0).
@@ -46,7 +39,7 @@ def set_monitor_mode(interface="wlan0"):
     return mon_iface
 
 
-def set_managed_mode(interface="wlan0"):
+def set_managed_mode(interface: str = "wlan0") -> None:
     """
     Restores interface to MANAGED mode and restarts NetworkManager using /usr/local/bin/managed0.
     """
@@ -64,7 +57,7 @@ def set_managed_mode(interface="wlan0"):
     log_air("[+] Interface restored to MANAGED mode.")
 
 
-def sniff_air_clients(target_bssids, interface="wlan0", duration=25):
+def sniff_air_clients(target_bssids: list[str], interface: str = "wlan0", duration: int = 25) -> dict:
     """
     Switches to monitor mode, sniffs 802.11 frames over-the-air for `duration` seconds,
     maps active client MAC and IP addresses to target BSSIDs, and cleanly restores managed mode.
@@ -85,7 +78,6 @@ def sniff_air_clients(target_bssids, interface="wlan0", duration=25):
     bssid_to_clients = {b: {} for b in target_bssids_set}
 
     try:
-        from .scanner import auto_detect_network_params
         auto_params = auto_detect_network_params(target_iface=interface)
         gw_mac = (auto_params.get("gateway_mac") or "").lower()
         local_mac = (auto_params.get("local_mac") or "").lower()
@@ -120,7 +112,6 @@ def sniff_air_clients(target_bssids, interface="wlan0", duration=25):
         if BOOTP and pkt.haslayer(BOOTP):
             bootp = pkt[BOOTP]
             if hasattr(bootp, "chaddr") and bootp.chaddr:
-                # Form MAC from chaddr bytes
                 ch_bytes = bootp.chaddr[:6]
                 bootp_mac = ":".join(f"{b:02x}" for b in ch_bytes).lower()
 
@@ -144,7 +135,7 @@ def sniff_air_clients(target_bssids, interface="wlan0", duration=25):
             elif pkt.haslayer(IP):
                 src_ip = str(pkt[IP].src)
 
-        # 3. 802.11 Data Frame (type 2) Payload unwrapping & LLC/SNAP parsing
+        # 3. 802.11 Data Frame Payload unwrapping & LLC/SNAP parsing
         if not src_ip and dot11.type == 2:
             curr = dot11.payload
             while curr:
@@ -177,7 +168,7 @@ def sniff_air_clients(target_bssids, interface="wlan0", duration=25):
                         data = payload[snap_idx+8:]
                         import socket
                         if ethertype == b"\x08\x00" and len(data) >= 20:  # IPv4
-                            if (data[0] & 0xf0) == 0x40:  # IPv4
+                            if (data[0] & 0xf0) == 0x40:
                                 ip_raw = socket.inet_ntoa(data[12:16])
                                 if ip_raw not in ("0.0.0.0", "255.255.255.255"):
                                     src_ip = ip_raw
@@ -188,8 +179,9 @@ def sniff_air_clients(target_bssids, interface="wlan0", duration=25):
                 except Exception:
                     pass
 
-        if src_ip in ("0.0.0.0", "255.255.255.255"):
-            src_ip = None
+        if src_ip:
+            if ":" in str(src_ip) or str(src_ip) in ("0.0.0.0", "255.255.255.255"):
+                src_ip = None
 
         # Determine BSSID and Client MAC from 802.11 header addresses
         for bssid_candidate in (addr3, addr1, addr2):
@@ -211,8 +203,6 @@ def sniff_air_clients(target_bssids, interface="wlan0", duration=25):
                             ip_str = f" ({src_ip})" if src_ip else ""
                             log_air(f"  [+] Caught Client: {client_candidate}{ip_str} on BSSID {matched_bssid}")
 
-    import threading
-
     stop_hopper = threading.Event()
 
     def channel_hopper(iface):
@@ -229,6 +219,8 @@ def sniff_air_clients(target_bssids, interface="wlan0", duration=25):
 
     try:
         sniff(iface=mon_iface, timeout=duration, prn=air_packet_callback, store=False)
+    except (AirSkipInterrupt, KeyboardInterrupt):
+        log_air("\n\033[93m[-] Ctrl+C pressed in Air window! Stopping air sniff and proceeding with captured targets...\033[0m")
     except Exception as e:
         log_air(f"[-] Over-the-air capture exception on {mon_iface}: {e}")
     finally:
@@ -243,6 +235,3 @@ def sniff_air_clients(target_bssids, interface="wlan0", duration=25):
         log_air("\n[Info] Air Sniff Complete: No active client MACs captured.")
 
     return bssid_to_clients
-
-
-

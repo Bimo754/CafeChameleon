@@ -1,22 +1,19 @@
 """
-Library/wifi.py - Wi-Fi BSSID locking, auto-roaming, status display via NetworkManager (nmcli).
+cafe_chameleon.network.nmcli - Wi-Fi BSSID locking, auto-roaming, and status display via NetworkManager (nmcli).
 """
 
-import re
 import sys
+import time
 
-from .utils import (
-    _run,
-    log_info,
-    log_plus,
-    log_warning,
-    log_minus
-)
+from cafe_chameleon.utils.process import _run
+from cafe_chameleon.ui.console import log_info, log_plus, log_warning, log_minus
+from cafe_chameleon.ui.colors import BOLD, CYAN, GREEN, YELLOW, RESET
+from cafe_chameleon.network.mac import is_valid_mac
 
 DEFAULT_BSSID = "08:FA:28:56:27:80"
 
 
-def get_active_profile():
+def get_active_profile() -> str:
     rc, out = _run(["nmcli", "-t", "-f", "NAME,TYPE", "connection", "show", "--active"])
     for line in out.splitlines():
         if line.endswith(":802-11-wireless"):
@@ -31,7 +28,7 @@ def get_active_profile():
     return ""
 
 
-def get_ssid_for_profile(profile):
+def get_ssid_for_profile(profile: str) -> str:
     """Retrieves the SSID associated with a connection profile."""
     rc, ssid = _run(["nmcli", "-g", "802-11-wireless.ssid", "connection", "show", profile])
     if ssid:
@@ -48,7 +45,7 @@ def get_ssid_for_profile(profile):
     return profile
 
 
-def scan_bssids_for_ssid(target_ssid):
+def scan_bssids_for_ssid(target_ssid: str) -> list[dict]:
     """Scans for available BSSIDs matching the target SSID."""
     log_info(f"Scanning area for BSSIDs of network '{target_ssid}'...")
     _run(["nmcli", "device", "wifi", "rescan"])
@@ -78,7 +75,7 @@ def scan_bssids_for_ssid(target_ssid):
     return results
 
 
-def get_connected_bssid():
+def get_connected_bssid() -> str:
     """Retrieves the currently connected BSSID."""
     rc, out = _run(["nmcli", "-t", "-f", "active,bssid", "dev", "wifi"])
     for line in out.splitlines():
@@ -86,11 +83,20 @@ def get_connected_bssid():
             unescaped = line.replace(r"\:", "\x00")
             parts = unescaped.split(":")
             if len(parts) >= 2:
-                return parts[1].replace("\x00", ":").strip()
+                bssid = parts[1].replace("\x00", ":").strip()
+                if bssid and bssid != "--":
+                    return bssid
+
+    rc, out = _run(["nmcli", "-t", "-f", "WIFI.BSSID", "dev", "show"])
+    for line in out.splitlines():
+        bssid = line.strip()
+        if bssid and bssid != "--":
+            return bssid
+
     return ""
 
 
-def select_bssid_interactively(target_ssid):
+def select_bssid_interactively(target_ssid: str) -> str | None:
     """Scans and presents an interactive menu for selecting a BSSID."""
     bssids = scan_bssids_for_ssid(target_ssid)
     if not bssids:
@@ -124,9 +130,8 @@ def select_bssid_interactively(target_ssid):
             sys.exit(0)
 
 
-def show_status():
+def show_status() -> None:
     profile = get_active_profile()
-    from .colors.colors import BOLD, CYAN, GREEN, YELLOW, RESET
     print(f"\n{BOLD}{CYAN}=== WI-FI STATUS ==={RESET}")
     if profile:
         print(f"{BOLD}Profile{RESET} : {CYAN}{profile}{RESET}")
@@ -156,76 +161,68 @@ def show_status():
     print(f"{CYAN}===================={RESET}\n")
 
 
-
-
-def lock_bssid(target_bssid=None, profile=None):
+def lock_bssid(target_bssid: str | None = None, profile: str | None = None, max_retries: int = 3) -> bool:
     profile = profile or get_active_profile()
     if not profile:
         log_minus("Error: Could not auto-detect active Wi-Fi profile. Please specify profile name.")
-        sys.exit(1)
+        return False
 
     target_ssid = get_ssid_for_profile(profile)
 
     if not target_bssid:
         target_bssid = select_bssid_interactively(target_ssid)
         if not target_bssid:
-            sys.exit(1)
+            return False
 
-    log_info(f"Locking profile '{profile}' to BSSID: {target_bssid}...")
-    rc, _ = _run(["nmcli", "connection", "modify", profile, "802-11-wireless.bssid", target_bssid])
-    if rc == 0:
+    log_info(f"Locking profile '{profile}' to BSSID: {target_bssid} (max {max_retries} attempts)...")
+
+    for attempt in range(1, max_retries + 1):
+        if attempt > 1:
+            log_info(f"Retry attempt {attempt}/{max_retries} to lock on BSSID: {target_bssid}...")
+
+        rc, _ = _run(["nmcli", "connection", "modify", profile, "802-11-wireless.bssid", target_bssid])
+        if rc != 0:
+            log_warning(f"Attempt {attempt}/{max_retries}: Failed to modify connection settings for '{profile}'.")
+            continue
+
         log_info(f"Reconnecting to '{profile}'...")
         _run(["nmcli", "connection", "up", profile])
-        connected_bssid = get_connected_bssid()
-        if connected_bssid and connected_bssid.upper() == target_bssid.upper():
+
+        # Poll for up to 5 seconds to verify BSSID lock
+        verified = False
+        connected_bssid = ""
+        for _ in range(5):
+            connected_bssid = get_connected_bssid()
+            if connected_bssid and connected_bssid.upper() == target_bssid.upper():
+                verified = True
+                break
+            time.sleep(1)
+
+        if verified:
             log_plus(f"Successfully locked and verified connection to BSSID {target_bssid}")
+            return True
         else:
-            log_plus(f"Connection modified. Active BSSID: {connected_bssid or 'Unknown'} (Target BSSID: {target_bssid})")
-    else:
-        log_minus("Failed to modify connection settings.")
-        sys.exit(1)
+            log_warning(
+                f"Attempt {attempt}/{max_retries} failed to lock onto BSSID {target_bssid}. "
+                f"Active BSSID: {connected_bssid or 'Unknown'}"
+            )
+
+    log_minus(f"Failed to lock onto BSSID {target_bssid} after {max_retries} attempts. Skipping BSSID...")
+    return False
 
 
-def restore_auto(profile):
+def restore_auto(profile: str | None = None) -> None:
     profile = profile or get_active_profile()
     if not profile:
         log_minus("Error: Could not auto-detect active Wi-Fi profile. Please specify profile name.")
         sys.exit(1)
 
-    log_info(f"Removing BSSID lock from profile '{profile}'...")
-    rc, _ = _run(["nmcli", "connection", "modify", profile, "802-11-wireless.bssid", ""])
-    if rc == 0:
-        log_info(f"Reconnecting profile '{profile}' (switching to strongest signal)...")
-        _run(["nmcli", "connection", "up", profile])
-        log_plus("Successfully restored auto-roaming to strongest signal!")
+    log_info(f"Removing BSSID lock and resetting cloned MAC on profile '{profile}'...")
+    _run(["nmcli", "connection", "modify", profile, "802-11-wireless.bssid", ""])
+    _run(["nmcli", "connection", "modify", profile, "802-11-wireless.cloned-mac-address", ""])
+    log_info(f"Reconnecting profile '{profile}' (switching to strongest signal & permanent MAC)...")
+    rc_up, _ = _run(["nmcli", "connection", "up", profile])
+    if rc_up == 0:
+        log_plus("Successfully restored auto-roaming and permanent MAC!")
     else:
-        log_minus("Failed to reset BSSID lock.")
-        sys.exit(1)
-
-
-def is_valid_mac(val):
-    return bool(re.match(r"^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$", val)) if val else False
-
-
-def run_wifi(args):
-    if args.status:
-        show_status()
-    elif args.lock is not None:
-        bssid = None
-        profile = None
-        if len(args.lock) == 1:
-            if is_valid_mac(args.lock[0]):
-                bssid = args.lock[0]
-            else:
-                profile = args.lock[0]
-        elif len(args.lock) >= 2:
-            bssid = args.lock[0]
-            profile = args.lock[1]
-
-        lock_bssid(bssid, profile)
-    elif args.auto is not None:
-        profile = args.auto[0] if len(args.auto) > 0 else None
-        restore_auto(profile)
-    else:
-        log_minus("No wifi action specified. Use --status, --lock, or --auto.")
-        sys.exit(1)
+        log_minus("Failed to reconnect profile after resetting settings.")
