@@ -1,11 +1,5 @@
 """
-Library/display.py - Multi-Window Xterm Display Manager for Captive Network Toolkit.
-
-Features:
-- Dynamically calculates screen resolution and positions needed xterm windows near center with a ~0.25cm (12px) gap between windows.
-- Spawns only active subcommand windows (wifi=0, scan=2/3, kyk=3/4).
-- Automatic window auto-close on exit (atexit handler).
-- Window closure monitoring: Closing ANY xterm window immediately closes all other windows, restores network settings, and exits main script.
+cafe_chameleon.ui.xterm - Multi-Window Xterm Display Manager & Tmux session controller.
 """
 
 import atexit
@@ -13,14 +7,13 @@ import os
 import re
 import shutil
 import subprocess
-import sys
 import threading
 import time
 
 FIFO_DIR = "/tmp/captive_xterm_fifos"
 
 
-def get_screen_resolution():
+def get_screen_resolution() -> tuple[int, int]:
     """Detects primary X11 monitor resolution or falls back to 1920x1080."""
     w, h = 1920, 1080
     try:
@@ -96,13 +89,15 @@ class XtermManager:
                     pass
             os.mkfifo(fifo_path)
 
+        event_file = "/tmp/captive_xterm_fifos/last_ctrl_c.event"
         ordered_names = [n for n in ["main", "air", "scan", "hijack"] if n in self.active_windows]
         first = ordered_names[0]
-        cmd_first = f"sh -c 'while true; do cat {self.fifos[first]}; sleep 0.1; done'"
+        main_pid = os.getpid()
+        cmd_first = f"sh -c 'stty -echoctl 2>/dev/null; trap \"echo {first} > {event_file}; kill -INT {main_pid} 2>/dev/null\" INT; while true; do cat {self.fifos[first]}; sleep 0.1; done'"
         subprocess.run(["tmux", "new-session", "-d", "-s", session_name, cmd_first], check=True)
 
         for name in ordered_names[1:]:
-            cmd_next = f"sh -c 'while true; do cat {self.fifos[name]}; sleep 0.1; done'"
+            cmd_next = f"sh -c 'stty -echoctl 2>/dev/null; trap \"echo {name} > {event_file}; kill -INT {main_pid} 2>/dev/null\" INT; while true; do cat {self.fifos[name]}; sleep 0.1; done'"
             subprocess.run(["tmux", "split-window", "-t", session_name, cmd_next], check=True)
 
         subprocess.run(["tmux", "select-layout", "-t", session_name, "tiled"], check=True)
@@ -125,7 +120,7 @@ class XtermManager:
             "-tn", "xterm-256color",
             "-e", f"tmux -2 attach-session -t {session_name}"
         ]
-        proc = subprocess.Popen(xterm_cmd)
+        proc = subprocess.Popen(xterm_cmd, start_new_session=True)
         self.procs["main_window"] = proc
 
         time.sleep(0.3)
@@ -139,7 +134,7 @@ class XtermManager:
                 pass
 
         all_window_configs = {
-            "main": ("MAIN CONTROLLER & BSSID TRACKER", "#0d1117", "#58a6ff", "1;36m========================================\n       KYK CONTROLLER & STATUS         \n========================================"),
+            "main": ("MAIN CONTROLLER & BSSID TRACKER", "#0d1117", "#58a6ff", "1;36m========================================\n    AGGRESSIVE CONTROLLER & STATUS      \n========================================"),
             "air": ("802.11 AIR SNIFFER", "#0d1117", "#bc8cff", "1;35m========================================\n     802.11 AIR SNIFFER (MONITOR MODE)  \n========================================"),
             "scan": ("SUBNET HOST SCANNER", "#0d1117", "#7ee787", "1;32m========================================\n         SUBNET HOST SCANNER            \n========================================"),
             "hijack": ("IMPERSONATION & HIJACK ENGINE", "#0d1117", "#ffa657", "1;33m========================================\n     IMPERSONATION & HIJACK ENGINE      \n========================================"),
@@ -168,7 +163,7 @@ class XtermManager:
                     if not self.closing:
                         self.closing = True
                         try:
-                            from .utils import restore_and_exit
+                            from cafe_chameleon.utils.signals import restore_and_exit
                             restore_and_exit(f"Xterm window '{name}' was closed by user.")
                         except Exception:
                             self.close()
