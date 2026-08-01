@@ -7,10 +7,10 @@ from cafe_chameleon.ui import colors
 from cafe_chameleon.ui.xterm import XtermManager
 
 WINDOW_THEME_COLORS = {
-    "main": "\033[96m",    # Cyan
-    "air": "\033[95m",     # Purple
-    "scan": "\033[92m",    # Green
-    "hijack": "\033[93m"   # Yellow
+    "main": "\033[38;5;215m",  # Warm Amber / Peach
+    "air": "\033[95m",         # Purple
+    "scan": "\033[92m",        # Green
+    "hijack": "\033[93m"       # Yellow
 }
 
 

@@ -115,14 +115,14 @@ class XtermManager:
                 pass
 
         self.window_headers = {
-            "main": "\033[1;36m─── MAIN CONTROLLER & BSSID TRACKER ───────────────────────────────────\033[0m",
+            "main": "\033[1;38;5;215m─── MAIN CONTROLLER & BSSID TRACKER ───────────────────────────────────\033[0m",
             "air": "\033[1;35m─── 802.11 AIR SNIFFER ─────────────────────────────────────────────────\033[0m",
             "scan": "\033[1;32m─── SUBNET HOST SCANNER ───────────────────────────────────────────────\033[0m",
             "hijack": "\033[1;33m─── IMPERSONATION & HIJACK ENGINE ─────────────────────────────────────\033[0m",
         }
 
         self.window_default_colors = {
-            "main": "\033[96m",
+            "main": "\033[38;5;215m",
             "air": "\033[95m",
             "scan": "\033[92m",
             "hijack": "\033[93m"
