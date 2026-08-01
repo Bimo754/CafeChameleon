@@ -52,9 +52,23 @@ class XtermManager:
         for name in self.active_windows:
             self.fifos[name] = os.path.join(FIFO_DIR, f"{name}.fifo")
 
+        self.input_fifo = os.path.join(FIFO_DIR, "main_input.fifo")
         self.handles = {}
         self.procs = {}
         self.line_counts = {name: 0 for name in self.active_windows}
+
+        # Persistent status tracking
+        self.main_interface = "N/A"
+        self.main_profile = "N/A"
+        self.main_ssid = "N/A"
+        self.main_status = "Idle"
+        self.air_mode = "Managed"
+        self.hijack_ip = None
+        self.hijack_technique = "Idle"
+        self.scan_subnet = "N/A"
+        self.scan_hosts_count = 0
+        self.scan_type = "Idle"
+
         self.closing = False
 
         if self.enabled:
@@ -75,7 +89,14 @@ class XtermManager:
     def _setup_fifos_and_xterms(self):
         os.makedirs(FIFO_DIR, exist_ok=True)
         sw, sh = get_screen_resolution()
-        xc, yc = sw // 2, sh // 2
+
+        # Compute 75% screen geometry centered
+        target_w = int(sw * 0.75)
+        target_h = int(sh * 0.75)
+        cols = max(100, int(target_w / 8.0))
+        rows = max(35, int(target_h / 16.0))
+        x_offset = max(0, (sw - target_w) // 2)
+        y_offset = max(0, (sh - target_h) // 2)
 
         session_name = "captive_ui"
         subprocess.run(["tmux", "kill-session", "-t", session_name], capture_output=True)
@@ -89,18 +110,40 @@ class XtermManager:
                     pass
             os.mkfifo(fifo_path)
 
+        if os.path.exists(self.input_fifo):
+            try:
+                os.remove(self.input_fifo)
+            except Exception:
+                pass
+        os.mkfifo(self.input_fifo)
+
         event_file = "/tmp/captive_xterm_fifos/last_ctrl_c.event"
         ordered_names = [n for n in ["main", "air", "scan", "hijack"] if n in self.active_windows]
         first = ordered_names[0]
         main_pid = os.getpid()
-        cmd_first = f"sh -c 'stty -echoctl 2>/dev/null; trap \"echo {first} > {event_file}; kill -INT {main_pid} 2>/dev/null\" INT; while true; do cat {self.fifos[first]}; sleep 0.1; done'"
+
+        if first == "main":
+            cmd_first = (
+                f"sh -c 'stty -echoctl 2>/dev/null; trap \"echo {first} > {event_file}; kill -INT {main_pid} 2>/dev/null\" INT; "
+                f"(cat {self.fifos[first]} &); while true; do read -r line; echo \"$line\" > {self.input_fifo}; done'"
+            )
+        else:
+            cmd_first = f"sh -c 'stty -echoctl 2>/dev/null; trap \"echo {first} > {event_file}; kill -INT {main_pid} 2>/dev/null\" INT; while true; do cat {self.fifos[first]}; sleep 0.1; done'"
+
         subprocess.run(["tmux", "new-session", "-d", "-s", session_name, cmd_first], check=True)
 
         for name in ordered_names[1:]:
-            cmd_next = f"sh -c 'stty -echoctl 2>/dev/null; trap \"echo {name} > {event_file}; kill -INT {main_pid} 2>/dev/null\" INT; while true; do cat {self.fifos[name]}; sleep 0.1; done'"
+            if name == "main":
+                cmd_next = (
+                    f"sh -c 'stty -echoctl 2>/dev/null; trap \"echo {name} > {event_file}; kill -INT {main_pid} 2>/dev/null\" INT; "
+                    f"(cat {self.fifos[name]} &); while true; do read -r line; echo \"$line\" > {self.input_fifo}; done'"
+                )
+            else:
+                cmd_next = f"sh -c 'stty -echoctl 2>/dev/null; trap \"echo {name} > {event_file}; kill -INT {main_pid} 2>/dev/null\" INT; while true; do cat {self.fifos[name]}; sleep 0.1; done'"
             subprocess.run(["tmux", "split-window", "-t", session_name, cmd_next], check=True)
 
         subprocess.run(["tmux", "select-layout", "-t", session_name, "tiled"], check=True)
+        subprocess.run(["tmux", "select-pane", "-t", f"{session_name}:0.0"], capture_output=True)
         subprocess.run(["tmux", "set-option", "-g", "default-terminal", "xterm-256color"], capture_output=True)
         subprocess.run(["tmux", "set-option", "-ga", "terminal-overrides", ",xterm-256color:Tc"], capture_output=True)
         subprocess.run(["tmux", "set-option", "-g", "mouse", "on"], capture_output=True)
@@ -112,7 +155,7 @@ class XtermManager:
         xterm_cmd = [
             "xterm",
             "-title", "Captive Network Toolkit",
-            "-geometry", f"160x45+{max(0, xc - 640)}+{max(0, yc - 400)}",
+            "-geometry", f"{cols}x{rows}+{x_offset}+{y_offset}",
             "-bg", "#0d1117",
             "-fg", "#58a6ff",
             "-fa", "Monospace",
@@ -133,14 +176,14 @@ class XtermManager:
             except Exception:
                 pass
 
-        all_window_configs = {
-            "main": ("MAIN CONTROLLER & BSSID TRACKER", "#0d1117", "#58a6ff", "1;36m========================================\n    AGGRESSIVE CONTROLLER & STATUS      \n========================================"),
-            "air": ("802.11 AIR SNIFFER", "#0d1117", "#bc8cff", "1;35m========================================\n     802.11 AIR SNIFFER (MONITOR MODE)  \n========================================"),
-            "scan": ("SUBNET HOST SCANNER", "#0d1117", "#7ee787", "1;32m========================================\n         SUBNET HOST SCANNER            \n========================================"),
-            "hijack": ("IMPERSONATION & HIJACK ENGINE", "#0d1117", "#ffa657", "1;33m========================================\n     IMPERSONATION & HIJACK ENGINE      \n========================================"),
+        self.window_headers = {
+            "main": "\033[1;36m─── MAIN CONTROLLER & BSSID TRACKER ───────────────────────────────────\033[0m",
+            "air": "\033[1;35m─── 802.11 AIR SNIFFER ─────────────────────────────────────────────────\033[0m",
+            "scan": "\033[1;32m─── SUBNET HOST SCANNER ───────────────────────────────────────────────\033[0m",
+            "hijack": "\033[1;33m─── IMPERSONATION & HIJACK ENGINE ─────────────────────────────────────\033[0m",
         }
 
-        window_default_colors = {
+        self.window_default_colors = {
             "main": "\033[96m",
             "air": "\033[95m",
             "scan": "\033[92m",
@@ -148,12 +191,133 @@ class XtermManager:
         }
 
         for name in self.active_windows:
-            title, bg, fg, header_tag = all_window_configs[name]
-            default_color = window_default_colors.get(name, "\033[0m")
-            self.write(name, f"\033[2J\033[H\033[{header_tag}{default_color}\n")
+            self.write(name, "", clear=True)
 
         # High-frequency background monitor for instant closure detection
         threading.Thread(target=self._monitor_window_closures, daemon=True).start()
+
+    def _get_main_upper_section(self) -> str:
+        line1 = f"\033[1;37mInterface:\033[0m \033[1;36m{self.main_interface}\033[0m | \033[1;37mProfile:\033[0m \033[1;36m{self.main_profile}\033[0m | \033[1;37mSSID:\033[0m \033[1;36m{self.main_ssid}\033[0m\033[K"
+        line2 = f"\033[1;37mStatus:\033[0m \033[1;33m{self.main_status}\033[0m\033[K"
+        line3 = "\033[1;30m───────────────────────────────────────────────────────────────────────\033[0m\033[K"
+        return f"{line1}\n{line2}\n{line3}"
+
+    def set_main_status(self, interface: str | None = None, profile: str | None = None, ssid: str | None = None, status: str | None = None) -> None:
+        if interface is not None:
+            self.main_interface = interface
+        if profile is not None:
+            self.main_profile = profile
+        if ssid is not None:
+            self.main_ssid = ssid
+        if status is not None:
+            self.main_status = status
+        if not self.enabled or self.closing or "main" not in self.active_windows:
+            return
+        handle = self.handles.get("main")
+        if handle:
+            try:
+                sec = self._get_main_upper_section()
+                default_color = self.window_default_colors.get("main", "\033[0m")
+                handle.write(f"\033[s\033[2;1H{sec}\033[u{default_color}")
+                handle.flush()
+            except Exception:
+                pass
+
+    def _get_air_upper_section(self) -> str:
+        if self.air_mode == "Monitor":
+            mode_colored = "\033[38;5;208mMonitor\033[0m"
+        else:
+            mode_colored = "\033[1;32mManaged\033[0m"
+        line1 = f"\033[1;37mMode:\033[0m {mode_colored}\033[K"
+        line2 = "\033[1;30m───────────────────────────────────────────────────────────────────────\033[0m\033[K"
+        return f"{line1}\n{line2}"
+
+    def set_air_mode(self, mode: str) -> None:
+        self.air_mode = mode
+        if not self.enabled or self.closing or "air" not in self.active_windows:
+            return
+        handle = self.handles.get("air")
+        if handle:
+            try:
+                sec = self._get_air_upper_section()
+                default_color = self.window_default_colors.get("air", "\033[0m")
+                handle.write(f"\033[s\033[2;1H{sec}\033[u{default_color}")
+                handle.flush()
+            except Exception:
+                pass
+
+    def _get_hijack_upper_section(self) -> str:
+        if self.hijack_ip:
+            ip_str = f"\033[1;32m{self.hijack_ip}\033[0m"
+        else:
+            ip_str = "\033[1;31mNot Found\033[0m"
+
+        line1 = f"\033[1;37mIP:\033[0m {ip_str}\033[K"
+        line2 = f"\033[1;37mTechnique:\033[0m \033[1;33m{self.hijack_technique}\033[0m\033[K"
+        line3 = "\033[1;30m───────────────────────────────────────────────────────────────────────\033[0m\033[K"
+        return f"{line1}\n{line2}\n{line3}"
+
+    def set_hijack_status(self, ip: str | None = None, technique: str | None = None, clear_section2: bool = False) -> None:
+        if ip is not None:
+            try:
+                import ipaddress
+                ip_obj = ipaddress.ip_address(str(ip))
+                if ip_obj.version == 4 and not (ip_obj.is_multicast or ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_unspecified or str(ip) == "255.255.255.255"):
+                    self.hijack_ip = str(ip)
+            except Exception:
+                pass
+        if technique is not None:
+            self.hijack_technique = technique
+        if not self.enabled or self.closing or "hijack" not in self.active_windows:
+            return
+        handle = self.handles.get("hijack")
+        if handle:
+            try:
+                sec = self._get_hijack_upper_section()
+                default_color = self.window_default_colors.get("hijack", "\033[0m")
+                if clear_section2:
+                    handle.write(f"\033[2;1H{sec}\n\033[J{default_color}")
+                else:
+                    handle.write(f"\033[s\033[2;1H{sec}\033[u{default_color}")
+                handle.flush()
+            except Exception:
+                pass
+
+    def clear_hijack_section2(self) -> None:
+        if not self.enabled or self.closing or "hijack" not in self.active_windows:
+            return
+        handle = self.handles.get("hijack")
+        if handle:
+            try:
+                default_color = self.window_default_colors.get("hijack", "\033[0m")
+                handle.write(f"\033[5;1H\033[J{default_color}")
+                handle.flush()
+            except Exception:
+                pass
+
+    def _get_scan_upper_section(self) -> str:
+        line1 = f"\033[1;37mSubnet:\033[0m \033[1;36m{self.scan_subnet}\033[0m | \033[1;37mHosts Found:\033[0m \033[1;32m{self.scan_hosts_count}\033[0m | \033[1;37mActive Scan:\033[0m \033[1;33m{self.scan_type}\033[0m\033[K"
+        line2 = "\033[1;30m───────────────────────────────────────────────────────────────────────\033[0m\033[K"
+        return f"{line1}\n{line2}"
+
+    def set_scan_status(self, subnet: str | None = None, count: int | None = None, scan_type: str | None = None) -> None:
+        if subnet is not None:
+            self.scan_subnet = subnet
+        if count is not None:
+            self.scan_hosts_count = count
+        if scan_type is not None:
+            self.scan_type = scan_type
+        if not self.enabled or self.closing or "scan" not in self.active_windows:
+            return
+        handle = self.handles.get("scan")
+        if handle:
+            try:
+                sec = self._get_scan_upper_section()
+                default_color = self.window_default_colors.get("scan", "\033[0m")
+                handle.write(f"\033[s\033[2;1H{sec}\033[u{default_color}")
+                handle.flush()
+            except Exception:
+                pass
 
     def _monitor_window_closures(self):
         """High-frequency monitor. Closing any xterm window instantly closes all others and exits."""
@@ -171,7 +335,7 @@ class XtermManager:
                     return
             time.sleep(0.05)
 
-    def write(self, target, text, clear=False):
+    def write(self, target, text, clear=False, add_newline=True):
         if not self.enabled or self.closing or target not in self.active_windows:
             return False
         handle = self.handles.get(target)
@@ -179,16 +343,31 @@ class XtermManager:
             try:
                 if clear:
                     handle.write("\033[2J\033[H")
+                    header = self.window_headers.get(target, "")
+                    default_color = self.window_default_colors.get(target, "\033[0m")
+                    if header:
+                        handle.write(f"{header}\n")
+                    if target == "main":
+                        handle.write(f"{self._get_main_upper_section()}\n")
+                    elif target == "air":
+                        handle.write(f"{self._get_air_upper_section()}\n")
+                    elif target == "hijack":
+                        handle.write(f"{self._get_hijack_upper_section()}\n")
+                    elif target == "scan":
+                        handle.write(f"{self._get_scan_upper_section()}\n")
+                    handle.write(f"{default_color}")
                     self.line_counts[target] = 0
 
-                content = text + ("\n" if not text.endswith("\n") else "")
-                handle.write(content)
-                handle.flush()
-                self.line_counts[target] += content.count("\n")
+                if text:
+                    content = (text + "\n") if (add_newline and not text.endswith("\n")) else text
+                    handle.write(content)
+                    handle.flush()
+                    self.line_counts[target] += content.count("\n")
                 return True
             except Exception:
                 pass
         return False
+
 
     def clear(self, target):
         self.write(target, "", clear=True)

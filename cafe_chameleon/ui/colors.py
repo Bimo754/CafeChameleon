@@ -2,6 +2,8 @@
 cafe_chameleon.ui.colors - ANSI color constants and formatted logging primitives.
 """
 
+import re
+
 RESET = "\033[0m"
 BOLD = "\033[1m"
 DIM = "\033[2m"
@@ -13,11 +15,48 @@ BLUE = "\033[94m"
 CYAN = "\033[96m"
 MAGENTA = "\033[95m"
 
+BRACKET_OPEN = f"{BOLD}{MAGENTA}[{RESET}"
+BRACKET_CLOSE = f"{BOLD}{MAGENTA}]{RESET}"
+
+
+def colorize_brackets(text: str) -> str:
+    """Format visible brackets [ and ] with bold magenta color."""
+    if not text:
+        return text
+
+    ansi_pattern = re.compile(r'(\x1b\[[0-9;]*[a-zA-Z])')
+    parts = ansi_pattern.split(text)
+
+    new_parts = []
+    for i, part in enumerate(parts):
+        if i % 2 == 0:  # Non-ANSI text segment
+            part = part.replace('[+]', '\x01PLUS\x02')
+            part = part.replace('[-]', '\x01MINUS\x02')
+            part = part.replace('[*]', '\x01STAR\x02')
+            part = part.replace('[!]', '\x01EXCL\x02')
+            part = part.replace('[?]', '\x01QUEST\x02')
+            part = part.replace('[~]', '\x01TILDE\x02')
+            part = part.replace('[i]', '\x01INFO\x02')
+
+            part = part.replace('[', BRACKET_OPEN).replace(']', BRACKET_CLOSE)
+
+            part = part.replace('\x01PLUS\x02', f'{BRACKET_OPEN}{BOLD}{GREEN}+{RESET}{BRACKET_CLOSE}')
+            part = part.replace('\x01MINUS\x02', f'{BRACKET_OPEN}{BOLD}{RED}-{RESET}{BRACKET_CLOSE}')
+            part = part.replace('\x01STAR\x02', f'{BRACKET_OPEN}{BOLD}{CYAN}*{RESET}{BRACKET_CLOSE}')
+            part = part.replace('\x01EXCL\x02', f'{BRACKET_OPEN}{BOLD}{RED}!{RESET}{BRACKET_CLOSE}')
+            part = part.replace('\x01QUEST\x02', f'{BRACKET_OPEN}{BOLD}{YELLOW}?{RESET}{BRACKET_CLOSE}')
+            part = part.replace('\x01TILDE\x02', f'{BRACKET_OPEN}{BOLD}{YELLOW}~{RESET}{BRACKET_CLOSE}')
+            part = part.replace('\x01INFO\x02', f'{BRACKET_OPEN}{BOLD}{CYAN}i{RESET}{BRACKET_CLOSE}')
+        new_parts.append(part)
+
+    return ''.join(new_parts)
+
 
 def _log(tag: str, color_code: str, text: str, end: str | None = None, start: str = "") -> None:
-    """Internal helper for colored logging."""
-    prefix = f"{start}{BOLD}{MAGENTA}[{RESET}{BOLD}{color_code}{tag}{RESET}{BOLD}{MAGENTA}]{RESET} "
-    print(f"{prefix}{text}", end=end)
+    """Internal helper for clean, modern colored logging."""
+    prefix = f"{start}{BRACKET_OPEN}{BOLD}{color_code}{tag}{RESET}{BRACKET_CLOSE} "
+    formatted_text = colorize_brackets(text)
+    print(f"{prefix}{formatted_text}", end=end)
 
 
 def info(text: str, end: str | None = None, start: str = "") -> None:
@@ -58,5 +97,6 @@ def step(text: str, end: str | None = None, start: str = "") -> None:
 
 def wait(text: str, end: str | None = None, start: str = "") -> None:
     _log("~", YELLOW, text, end=end, start=start)
+
 
 

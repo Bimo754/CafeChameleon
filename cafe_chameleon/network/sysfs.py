@@ -48,13 +48,15 @@ def get_carrier_status(interface: str) -> bool:
     return False
 
 
-def wait_for_carrier(interface: str, timeout: float = 5.0, poll_interval: float = 0.05) -> bool:
+def wait_for_carrier(interface: str, timeout: float = 6.0, poll_interval: float = 0.05) -> bool:
     """
     Polls sysfs carrier status until the interface hardware link becomes ready
     or timeout expires. Returns True if carrier detected, False on timeout.
     """
     if get_carrier_status(interface):
         return True
+
+    _run(f"ip link set dev {interface} up", debug=False)
 
     log_wait(f"Syncing link carrier on {interface}...")
     start_time = time.time()
@@ -68,7 +70,8 @@ def wait_for_carrier(interface: str, timeout: float = 5.0, poll_interval: float 
     if ok:
         log_step(f"Carrier active on {interface}.")
     else:
-        log_warning(f"Carrier wait timeout ({timeout}s) on {interface}.")
+        log_warning(f"Carrier wait timeout ({timeout:.1f}s) on {interface}.")
     return ok
+
 
 
