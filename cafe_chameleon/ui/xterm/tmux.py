@@ -6,8 +6,9 @@ import os
 import subprocess
 from typing import Set
 
+from cafe_chameleon.config import EVENT_FILE
+
 SESSION_NAME = "captive_ui"
-EVENT_FILE = "/tmp/captive_xterm_fifos/last_ctrl_c.event"
 
 
 def setup_tmux_session(active_windows: Set[str], fifos: dict, input_fifo: str) -> None:

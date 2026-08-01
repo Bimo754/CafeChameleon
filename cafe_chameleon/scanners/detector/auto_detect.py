@@ -7,41 +7,40 @@ import re
 from cafe_chameleon.utils.process import _run
 from cafe_chameleon.ui.console import log_warning
 from cafe_chameleon.network.internet import has_internet
+from cafe_chameleon.models import NetworkParams
 from .validator import validate_interface, find_suitable_interface
 
+# Pre-compiled regular expression patterns for high-frequency detection logic
+GW_VIA_REGEX = re.compile(r"via\s+(\S+)")
+GW_DEV_REGEX = re.compile(r"dev\s+(\S+)")
+INET_REGEX = re.compile(r"inet\s+(\S+)")
+BRD_REGEX = re.compile(r"brd\s+(\S+)")
+MAC_LINK_REGEX = re.compile(r"link/ether\s+([0-9a-fa-f:]+)", re.IGNORECASE)
+SSID_LINK_REGEX = re.compile(r"SSID:\s*(.*)")
+LLADDR_REGEX = re.compile(r"lladdr\s+([0-9a-fa-f:]+)", re.IGNORECASE)
 
-def auto_detect_network_params(target_iface: str | None = None) -> dict:
+
+def auto_detect_network_params(target_iface: str | None = None) -> NetworkParams:
     """
     Auto-detects default network interface, local IP, MAC, gateway, netmask,
-    broadcast, wireless SSID, and router MAC.
+    broadcast, wireless SSID, and router MAC. Returns a strongly-typed NetworkParams instance.
     """
-    info = {
-        "interface": target_iface,
-        "local_ip": None,
-        "local_mac": None,
-        "gateway_ip": None,
-        "gateway_mac": None,
-        "broadcast": None,
-        "cidr": None,
-        "ssid": None,
-        "internet_access": False
-    }
-
+    params = NetworkParams(interface=target_iface)
     target_requested = target_iface
 
     # 1. Default interface & Gateway IP
     rc, route_out = _run(["ip", "-o", "-4", "route", "show", "to", "default"])
     if route_out:
-        gw_match = re.search(r"via\s+(\S+)", route_out)
-        dev_match = re.search(r"dev\s+(\S+)", route_out)
+        gw_match = GW_VIA_REGEX.search(route_out)
+        dev_match = GW_DEV_REGEX.search(route_out)
         if gw_match:
-            info["gateway_ip"] = gw_match.group(1)
-        if dev_match and not info["interface"]:
+            params.gateway_ip = gw_match.group(1)
+        if dev_match and not params.interface:
             dev_name = dev_match.group(1)
             if not any(dev_name.startswith(prefix) for prefix in ("br-", "veth", "docker", "lo", "lxc")):
-                info["interface"] = dev_name
+                params.interface = dev_name
 
-    if not info["interface"]:
+    if not params.interface:
         rc, link_out = _run(["ip", "-o", "link", "show"])
         for line in link_out.splitlines():
             if "state UP" in line and "LOOPBACK" not in line:
@@ -49,61 +48,61 @@ def auto_detect_network_params(target_iface: str | None = None) -> dict:
                 if len(parts) >= 2:
                     iface_name = parts[1].strip()
                     if not any(iface_name.startswith(prefix) for prefix in ("br-", "veth", "docker", "lo", "lxc")):
-                        info["interface"] = iface_name
+                        params.interface = iface_name
                         break
 
-    if not info["interface"]:
+    if not params.interface:
         suitable = find_suitable_interface()
-        info["interface"] = suitable or "wlan0"
+        params.interface = suitable or "wlan0"
 
     if target_requested and not validate_interface(target_requested):
         log_warning(f"[!] Warning: Specified network interface '{target_requested}' not found on system.")
         suitable = find_suitable_interface()
         if suitable and suitable != target_requested:
-            info["interface"] = suitable
+            params.interface = suitable
             log_warning(f"[!] Warning: Using detected interface '{suitable}' instead.")
         else:
             log_warning(f"[!] Warning: No suitable network interface (like '{target_requested}') found on this system.")
-    elif not validate_interface(info["interface"]):
-        log_warning(f"[!] Warning: No suitable network interface (like '{info['interface']}') found on this system.")
+    elif not validate_interface(params.interface):
+        log_warning(f"[!] Warning: No suitable network interface (like '{params.interface}') found on this system.")
 
     # 2. IP, netmask/CIDR, broadcast
-    rc, addr_out = _run(["ip", "-o", "-4", "addr", "show", "dev", info["interface"]])
+    rc, addr_out = _run(["ip", "-o", "-4", "addr", "show", "dev", params.interface])
     if addr_out:
-        ip_match = re.search(r"inet\s+(\S+)", addr_out)
-        brd_match = re.search(r"brd\s+(\S+)", addr_out)
+        ip_match = INET_REGEX.search(addr_out)
+        brd_match = BRD_REGEX.search(addr_out)
         if ip_match:
-            info["cidr"] = ip_match.group(1)
-            info["local_ip"] = info["cidr"].split("/")[0]
+            params.cidr = ip_match.group(1)
+            params.local_ip = params.cidr.split("/")[0]
         if brd_match:
-            info["broadcast"] = brd_match.group(1)
+            params.broadcast = brd_match.group(1)
 
     # 3. Local MAC
-    rc, mac_out = _run(["ip", "-0", "addr", "show", "dev", info["interface"]])
+    rc, mac_out = _run(["ip", "-0", "addr", "show", "dev", params.interface])
     if mac_out:
-        mac_match = re.search(r"link/ether\s+([0-9a-fa-f:]+)", mac_out, re.IGNORECASE)
+        mac_match = MAC_LINK_REGEX.search(mac_out)
         if mac_match:
-            info["local_mac"] = mac_match.group(1).lower()
+            params.local_mac = mac_match.group(1).lower()
 
     # 4. Wi-Fi SSID
-    rc, iw_out = _run(["iw", "dev", info["interface"], "link"])
+    rc, iw_out = _run(["iw", "dev", params.interface, "link"])
     if rc == 0 and iw_out:
-        ssid_match = re.search(r"SSID:\s*(.*)", iw_out)
+        ssid_match = SSID_LINK_REGEX.search(iw_out)
         if ssid_match:
-            info["ssid"] = ssid_match.group(1).strip()
+            params.ssid = ssid_match.group(1).strip()
 
     # 5. Gateway MAC
-    if info["gateway_ip"]:
-        rc, neigh_out = _run(["ip", "neighbor", "show", info["gateway_ip"], "dev", info["interface"]])
+    if params.gateway_ip:
+        rc, neigh_out = _run(["ip", "neighbor", "show", params.gateway_ip, "dev", params.interface])
         if neigh_out:
-            gw_mac_m = re.search(r"lladdr\s+([0-9a-fa-f:]+)", neigh_out, re.IGNORECASE)
+            gw_mac_m = LLADDR_REGEX.search(neigh_out)
             if gw_mac_m:
-                info["gateway_mac"] = gw_mac_m.group(1).lower()
+                params.gateway_mac = gw_mac_m.group(1).lower()
 
     # 6. Check internet access
-    info["internet_access"] = has_internet()
+    params.internet_access = has_internet()
 
-    return info
+    return params
 
 
 def get_interface_details(interface: str) -> tuple[str, str]:

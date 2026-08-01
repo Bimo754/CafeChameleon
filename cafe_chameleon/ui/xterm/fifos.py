@@ -4,8 +4,7 @@ cafe_chameleon.ui.xterm.fifos - FIFO pipe directory management and setup.
 
 import os
 
-FIFO_DIR = "/tmp/captive_xterm_fifos"
-EVENT_FILE = "/tmp/captive_xterm_fifos/last_ctrl_c.event"
+from cafe_chameleon.config import FIFO_DIR, EVENT_FILE
 
 
 def get_fifo_path(name: str) -> str:

@@ -2,6 +2,7 @@
 cafe_chameleon.scanners.air.sniffer - Over-the-air 802.11 monitor mode client discovery coordinator.
 """
 
+from cafe_chameleon.config import DEFAULT_AIR_DURATION
 from cafe_chameleon.utils.signals import AirSkipInterrupt
 from cafe_chameleon.ui.console import log_air
 from cafe_chameleon.scanners.detector import auto_detect_network_params
@@ -11,7 +12,7 @@ from .hopper import ChannelHopper
 from .packet_parser import parse_air_packet
 
 
-def sniff_air_clients(target_bssids: list[str], interface: str = "wlan0", duration: int = 25, target_channels: list[int] | None = None) -> dict:
+def sniff_air_clients(target_bssids: list[str], interface: str = "wlan0", duration: int = DEFAULT_AIR_DURATION, target_channels: list[int] | None = None) -> dict:
     """
     Switches to monitor mode, sniffs 802.11 frames over-the-air for `duration` seconds,
     maps active client MAC and IP addresses to target BSSIDs, and cleanly restores managed mode.
