@@ -8,8 +8,6 @@ Subcommands:
   wifi       - Manage WiFi BSSID lock / auto-roam / status via nmcli
 """
 
-import sys
-
 from cafe_chameleon.cli.parser import parse_arguments
 from cafe_chameleon.utils.state import set_debug, set_quiet, set_use_xterm, set_use_original_mac, get_debug_tracing
 from cafe_chameleon.utils.tracing import trace, log_exception_to_trace, get_recent_trace, get_trace_filepath

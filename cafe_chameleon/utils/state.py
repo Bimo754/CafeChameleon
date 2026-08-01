@@ -39,10 +39,6 @@ def set_debug(val: bool | str | list | None) -> None:
         DEBUG_TRACING = False
 
 
-def get_debug() -> bool:
-    return DEBUG_COMMANDS
-
-
 def get_debug_commands() -> bool:
     return DEBUG_COMMANDS
 

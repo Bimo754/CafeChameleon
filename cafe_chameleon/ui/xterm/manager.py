@@ -1,36 +1,23 @@
 """
-cafe_chameleon.ui.xterm - Multi-Window Xterm Display Manager & Tmux session controller.
+cafe_chameleon.ui.xterm.manager - Multi-Window Xterm Display Manager class implementation.
 """
 
 import atexit
 import os
-import re
 import shutil
 import subprocess
 import threading
 import time
 
-FIFO_DIR = "/tmp/captive_xterm_fifos"
-
-
-def get_screen_resolution() -> tuple[int, int]:
-    """Detects primary X11 monitor resolution or falls back to 1920x1080."""
-    w, h = 1920, 1080
-    try:
-        res = subprocess.run(["xdpyinfo"], capture_output=True, text=True)
-        m = re.search(r"dimensions:\s+(\d+)x(\d+)\s+pixels", res.stdout)
-        if m:
-            return int(m.group(1)), int(m.group(2))
-    except Exception:
-        pass
-    try:
-        res = subprocess.run(["xrandr"], capture_output=True, text=True)
-        m = re.search(r"current\s+(\d+)\s+x\s+(\d+)", res.stdout)
-        if m:
-            return int(m.group(1)), int(m.group(2))
-    except Exception:
-        pass
-    return w, h
+from .screen import get_screen_resolution
+from .fifos import FIFO_DIR, prepare_fifo, remove_fifos, get_fifo_path, get_input_fifo_path
+from .tmux import setup_tmux_session, kill_tmux_session
+from .headers import (
+    format_main_header,
+    format_air_header,
+    format_hijack_header,
+    format_scan_header
+)
 
 
 class XtermManager:
@@ -50,9 +37,9 @@ class XtermManager:
 
         self.fifos = {}
         for name in self.active_windows:
-            self.fifos[name] = os.path.join(FIFO_DIR, f"{name}.fifo")
+            self.fifos[name] = get_fifo_path(name)
 
-        self.input_fifo = os.path.join(FIFO_DIR, "main_input.fifo")
+        self.input_fifo = get_input_fifo_path()
         self.handles = {}
         self.procs = {}
         self.line_counts = {name: 0 for name in self.active_windows}
@@ -90,7 +77,6 @@ class XtermManager:
         os.makedirs(FIFO_DIR, exist_ok=True)
         sw, sh = get_screen_resolution()
 
-        # Compute 75% screen geometry centered
         target_w = int(sw * 0.75)
         target_h = int(sh * 0.75)
         cols = max(100, int(target_w / 8.0))
@@ -98,59 +84,11 @@ class XtermManager:
         x_offset = max(0, (sw - target_w) // 2)
         y_offset = max(0, (sh - target_h) // 2)
 
-        session_name = "captive_ui"
-        subprocess.run(["tmux", "kill-session", "-t", session_name], capture_output=True)
-
         for name in self.active_windows:
-            fifo_path = self.fifos[name]
-            if os.path.exists(fifo_path):
-                try:
-                    os.remove(fifo_path)
-                except Exception:
-                    pass
-            os.mkfifo(fifo_path)
+            prepare_fifo(self.fifos[name])
+        prepare_fifo(self.input_fifo)
 
-        if os.path.exists(self.input_fifo):
-            try:
-                os.remove(self.input_fifo)
-            except Exception:
-                pass
-        os.mkfifo(self.input_fifo)
-
-        event_file = "/tmp/captive_xterm_fifos/last_ctrl_c.event"
-        ordered_names = [n for n in ["main", "air", "scan", "hijack"] if n in self.active_windows]
-        first = ordered_names[0]
-        main_pid = os.getpid()
-
-        if first == "main":
-            cmd_first = (
-                f"sh -c 'stty -echoctl 2>/dev/null; trap \"echo {first} > {event_file}; kill -INT {main_pid} 2>/dev/null\" INT; "
-                f"(cat {self.fifos[first]} &); while true; do read -r line; echo \"$line\" > {self.input_fifo}; done'"
-            )
-        else:
-            cmd_first = f"sh -c 'stty -echoctl 2>/dev/null; trap \"echo {first} > {event_file}; kill -INT {main_pid} 2>/dev/null\" INT; while true; do cat {self.fifos[first]}; sleep 0.1; done'"
-
-        subprocess.run(["tmux", "new-session", "-d", "-s", session_name, cmd_first], check=True)
-
-        for name in ordered_names[1:]:
-            if name == "main":
-                cmd_next = (
-                    f"sh -c 'stty -echoctl 2>/dev/null; trap \"echo {name} > {event_file}; kill -INT {main_pid} 2>/dev/null\" INT; "
-                    f"(cat {self.fifos[name]} &); while true; do read -r line; echo \"$line\" > {self.input_fifo}; done'"
-                )
-            else:
-                cmd_next = f"sh -c 'stty -echoctl 2>/dev/null; trap \"echo {name} > {event_file}; kill -INT {main_pid} 2>/dev/null\" INT; while true; do cat {self.fifos[name]}; sleep 0.1; done'"
-            subprocess.run(["tmux", "split-window", "-t", session_name, cmd_next], check=True)
-
-        subprocess.run(["tmux", "select-layout", "-t", session_name, "tiled"], check=True)
-        subprocess.run(["tmux", "select-pane", "-t", f"{session_name}:0.0"], capture_output=True)
-        subprocess.run(["tmux", "set-option", "-g", "default-terminal", "xterm-256color"], capture_output=True)
-        subprocess.run(["tmux", "set-option", "-ga", "terminal-overrides", ",xterm-256color:Tc"], capture_output=True)
-        subprocess.run(["tmux", "set-option", "-g", "mouse", "on"], capture_output=True)
-        subprocess.run(["tmux", "set-option", "-g", "history-limit", "50000"], capture_output=True)
-        subprocess.run(["tmux", "set-option", "-t", session_name, "status", "off"], capture_output=True)
-        subprocess.run(["tmux", "set-option", "-t", session_name, "pane-border-style", "fg=#30363d"], capture_output=True)
-        subprocess.run(["tmux", "set-option", "-t", session_name, "pane-active-border-style", "fg=#58a6ff"], capture_output=True)
+        setup_tmux_session(self.active_windows, self.fifos, self.input_fifo)
 
         xterm_cmd = [
             "xterm",
@@ -161,7 +99,7 @@ class XtermManager:
             "-fa", "Monospace",
             "-fs", "10",
             "-tn", "xterm-256color",
-            "-e", f"tmux -2 attach-session -t {session_name}"
+            "-e", "tmux -2 attach-session -t captive_ui"
         ]
         proc = subprocess.Popen(xterm_cmd, start_new_session=True)
         self.procs["main_window"] = proc
@@ -193,14 +131,7 @@ class XtermManager:
         for name in self.active_windows:
             self.write(name, "", clear=True)
 
-        # High-frequency background monitor for instant closure detection
         threading.Thread(target=self._monitor_window_closures, daemon=True).start()
-
-    def _get_main_upper_section(self) -> str:
-        line1 = f"\033[1;37mInterface:\033[0m \033[1;36m{self.main_interface}\033[0m | \033[1;37mProfile:\033[0m \033[1;36m{self.main_profile}\033[0m | \033[1;37mSSID:\033[0m \033[1;36m{self.main_ssid}\033[0m\033[K"
-        line2 = f"\033[1;37mStatus:\033[0m \033[1;33m{self.main_status}\033[0m\033[K"
-        line3 = "\033[1;30m───────────────────────────────────────────────────────────────────────\033[0m\033[K"
-        return f"{line1}\n{line2}\n{line3}"
 
     def set_main_status(self, interface: str | None = None, profile: str | None = None, ssid: str | None = None, status: str | None = None) -> None:
         if interface is not None:
@@ -216,21 +147,12 @@ class XtermManager:
         handle = self.handles.get("main")
         if handle:
             try:
-                sec = self._get_main_upper_section()
+                sec = format_main_header(self.main_interface, self.main_profile, self.main_ssid, self.main_status)
                 default_color = self.window_default_colors.get("main", "\033[0m")
                 handle.write(f"\033[s\033[2;1H{sec}\033[u{default_color}")
                 handle.flush()
             except Exception:
                 pass
-
-    def _get_air_upper_section(self) -> str:
-        if self.air_mode == "Monitor":
-            mode_colored = "\033[38;5;208mMonitor\033[0m"
-        else:
-            mode_colored = "\033[1;32mManaged\033[0m"
-        line1 = f"\033[1;37mMode:\033[0m {mode_colored}\033[K"
-        line2 = "\033[1;30m───────────────────────────────────────────────────────────────────────\033[0m\033[K"
-        return f"{line1}\n{line2}"
 
     def set_air_mode(self, mode: str) -> None:
         self.air_mode = mode
@@ -239,23 +161,12 @@ class XtermManager:
         handle = self.handles.get("air")
         if handle:
             try:
-                sec = self._get_air_upper_section()
+                sec = format_air_header(self.air_mode)
                 default_color = self.window_default_colors.get("air", "\033[0m")
                 handle.write(f"\033[s\033[2;1H{sec}\033[u{default_color}")
                 handle.flush()
             except Exception:
                 pass
-
-    def _get_hijack_upper_section(self) -> str:
-        if self.hijack_ip:
-            ip_str = f"\033[1;32m{self.hijack_ip}\033[0m"
-        else:
-            ip_str = "\033[1;31mNot Found\033[0m"
-
-        line1 = f"\033[1;37mIP:\033[0m {ip_str}\033[K"
-        line2 = f"\033[1;37mTechnique:\033[0m \033[1;33m{self.hijack_technique}\033[0m\033[K"
-        line3 = "\033[1;30m───────────────────────────────────────────────────────────────────────\033[0m\033[K"
-        return f"{line1}\n{line2}\n{line3}"
 
     def set_hijack_status(self, ip: str | None = None, technique: str | None = None, clear_section2: bool = False) -> None:
         if ip is not None:
@@ -273,7 +184,7 @@ class XtermManager:
         handle = self.handles.get("hijack")
         if handle:
             try:
-                sec = self._get_hijack_upper_section()
+                sec = format_hijack_header(self.hijack_ip, self.hijack_technique)
                 default_color = self.window_default_colors.get("hijack", "\033[0m")
                 if clear_section2:
                     handle.write(f"\033[2;1H{sec}\n\033[J{default_color}")
@@ -295,11 +206,6 @@ class XtermManager:
             except Exception:
                 pass
 
-    def _get_scan_upper_section(self) -> str:
-        line1 = f"\033[1;37mSubnet:\033[0m \033[1;36m{self.scan_subnet}\033[0m | \033[1;37mHosts Found:\033[0m \033[1;32m{self.scan_hosts_count}\033[0m | \033[1;37mActive Scan:\033[0m \033[1;33m{self.scan_type}\033[0m\033[K"
-        line2 = "\033[1;30m───────────────────────────────────────────────────────────────────────\033[0m\033[K"
-        return f"{line1}\n{line2}"
-
     def set_scan_status(self, subnet: str | None = None, count: int | None = None, scan_type: str | None = None) -> None:
         if subnet is not None:
             self.scan_subnet = subnet
@@ -312,7 +218,7 @@ class XtermManager:
         handle = self.handles.get("scan")
         if handle:
             try:
-                sec = self._get_scan_upper_section()
+                sec = format_scan_header(self.scan_subnet, self.scan_hosts_count, self.scan_type)
                 default_color = self.window_default_colors.get("scan", "\033[0m")
                 handle.write(f"\033[s\033[2;1H{sec}\033[u{default_color}")
                 handle.flush()
@@ -320,7 +226,6 @@ class XtermManager:
                 pass
 
     def _monitor_window_closures(self):
-        """High-frequency monitor. Closing any xterm window instantly closes all others and exits."""
         while not self.closing:
             for name, proc in list(self.procs.items()):
                 if proc.poll() is not None:
@@ -348,13 +253,13 @@ class XtermManager:
                     if header:
                         handle.write(f"{header}\n")
                     if target == "main":
-                        handle.write(f"{self._get_main_upper_section()}\n")
+                        handle.write(f"{format_main_header(self.main_interface, self.main_profile, self.main_ssid, self.main_status)}\n")
                     elif target == "air":
-                        handle.write(f"{self._get_air_upper_section()}\n")
+                        handle.write(f"{format_air_header(self.air_mode)}\n")
                     elif target == "hijack":
-                        handle.write(f"{self._get_hijack_upper_section()}\n")
+                        handle.write(f"{format_hijack_header(self.hijack_ip, self.hijack_technique)}\n")
                     elif target == "scan":
-                        handle.write(f"{self._get_scan_upper_section()}\n")
+                        handle.write(f"{format_scan_header(self.scan_subnet, self.scan_hosts_count, self.scan_type)}\n")
                     handle.write(f"{default_color}")
                     self.line_counts[target] = 0
 
@@ -368,7 +273,6 @@ class XtermManager:
                 pass
         return False
 
-
     def clear(self, target):
         self.write(target, "", clear=True)
 
@@ -377,7 +281,7 @@ class XtermManager:
             return
         self.closing = True
 
-        subprocess.run(["tmux", "kill-session", "-t", "captive_ui"], capture_output=True)
+        kill_tmux_session()
 
         for h in self.handles.values():
             try:
@@ -390,10 +294,5 @@ class XtermManager:
                 p.kill()
             except Exception:
                 pass
-        for f in self.fifos.values():
-            if os.path.exists(f):
-                try:
-                    os.remove(f)
-                except Exception:
-                    pass
+        remove_fifos(self.fifos, self.input_fifo)
         XtermManager._instance = None

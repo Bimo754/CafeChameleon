@@ -1,5 +1,5 @@
 """
-cafe_chameleon.aggressive.ranker - BSSID scoring and auto-selection ranking algorithm.
+cafe_chameleon.modes.aggressive.ranker - BSSID scoring and auto-selection ranking algorithm.
 """
 
 import re
@@ -22,8 +22,5 @@ def calculate_bssid_score(bssid_item: dict, air_clients_map: dict | None = None)
     if air_clients_map and bssid_mac in air_clients_map:
         client_count = len(air_clients_map[bssid_mac])
 
-    # Score formula: Weight signal strength percentage alongside client count,
-    # giving active captured clients a strong boost while maintaining signal quality.
     score = (signal_pct * 75) + (client_count * 80)
     return score, client_count, signal_pct
-
