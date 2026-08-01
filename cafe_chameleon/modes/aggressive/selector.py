@@ -12,14 +12,14 @@ def display_and_select_bssid(bssids: list[dict], air_clients_map: dict, select_r
     """Sorts, prints ranked BSSIDs, and handles interactive selection if requested."""
     bssids.sort(key=lambda b: calculate_bssid_score(b, air_clients_map)[0], reverse=True)
 
-    log_main("\n\033[1;36m── AUTO-RANKED BSSID TARGETS ──────────────────────────────────────────\033[0m")
+    log_main("\n\033[1;38;5;215m── AUTO-RANKED BSSID TARGETS ──────────────────────────────────────────\033[0m")
     for rank, b in enumerate(bssids, start=1):
         score, clients, sig = calculate_bssid_score(b, air_clients_map)
         log_main(f" #{rank:<2} │ \033[1;37mBSSID:\033[0m {b['bssid']} │ \033[1;37mScore:\033[0m {score:<4} │ \033[1;37mClients:\033[0m {clients:<2} │ \033[1;37mSig:\033[0m {sig}% │ \033[1;37mCh:\033[0m {b['chan']}")
     log_main("\033[1;30m────────────────────────────────────────────────────────────────────────\033[0m\n")
 
     if select_requested:
-        log_main("\n\033[1;36m── BSSID SELECTION LIST ───────────────────────────────────────────────\033[0m")
+        log_main("\n\033[1;38;5;215m── BSSID SELECTION LIST ───────────────────────────────────────────────\033[0m")
         for i, b in enumerate(bssids, start=1):
             score, clients, sig = calculate_bssid_score(b, air_clients_map)
             log_main(f"  [{i}] {b['bssid']} (\033[1;37mClients:\033[0m {clients}, \033[1;37mSignal:\033[0m {sig}%, \033[1;37mChannel:\033[0m {b['chan']})")

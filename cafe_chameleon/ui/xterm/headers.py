@@ -4,7 +4,7 @@ cafe_chameleon.ui.xterm.headers - Window header and section text generator funct
 
 
 def format_main_header(interface: str, profile: str, ssid: str, status: str) -> str:
-    line1 = f"\033[1;37mInterface:\033[0m \033[1;36m{interface}\033[0m | \033[1;37mProfile:\033[0m \033[1;36m{profile}\033[0m | \033[1;37mSSID:\033[0m \033[1;36m{ssid}\033[0m\033[K"
+    line1 = f"\033[1;37mInterface:\033[0m \033[1;38;5;215m{interface}\033[0m | \033[1;37mProfile:\033[0m \033[1;38;5;215m{profile}\033[0m | \033[1;37mSSID:\033[0m \033[1;38;5;215m{ssid}\033[0m\033[K"
     line2 = f"\033[1;37mStatus:\033[0m \033[1;33m{status}\033[0m\033[K"
     line3 = "\033[1;30m───────────────────────────────────────────────────────────────────────\033[0m\033[K"
     return f"{line1}\n{line2}\n{line3}"
