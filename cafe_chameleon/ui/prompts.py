@@ -4,7 +4,7 @@ cafe_chameleon.ui.prompts - Interactive user confirmation prompts.
 
 import sys
 
-from cafe_chameleon.ui.console import log_main, get_user_input
+from cafe_chameleon.ui.console import get_user_input
 
 
 def ask_proceed(prompt: str = "Do you want to proceed with the attack? [Y/n]: ") -> bool:

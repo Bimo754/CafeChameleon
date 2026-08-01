@@ -1,8 +1,8 @@
 """
-cafe_chameleon.cli.commands.aggressive - Command handler for 'aggressive' (Sequential multi-BSSID exploration & over-the-air client discovery).
+cafe_chameleon.cli.commands.aggressive - Command handler adapter for 'aggressive' mode.
 """
 
-from cafe_chameleon.aggressive.runner import run_aggressive
+from cafe_chameleon.modes.aggressive import run_aggressive
 
 
 def handle_aggressive(args) -> bool:

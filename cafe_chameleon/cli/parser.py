@@ -5,19 +5,10 @@ cafe_chameleon.cli.parser - CLI Argument Parser definitions for simple, aggressi
 import argparse
 
 from cafe_chameleon.network.nmcli import DEFAULT_BSSID
-from cafe_chameleon.cli.commands.simple import run_simple
-from cafe_chameleon.cli.commands.aggressive import handle_aggressive
-from cafe_chameleon.cli.commands.wifi import run_wifi
-
-
-import argparse
-import sys
-
-from cafe_chameleon.network.nmcli import DEFAULT_BSSID
-from cafe_chameleon.cli.commands.simple import run_simple
-from cafe_chameleon.cli.commands.aggressive import handle_aggressive
-from cafe_chameleon.cli.commands.wifi import run_wifi
-from cafe_chameleon.ui.colors import BOLD, CYAN, GREEN, YELLOW, RESET, DIM
+from cafe_chameleon.modes.simple import run_simple
+from cafe_chameleon.modes.aggressive import run_aggressive
+from cafe_chameleon.modes.wifi import run_wifi
+from cafe_chameleon.ui.colors import BOLD, CYAN, RESET
 
 
 class CleanHelpFormatter(argparse.HelpFormatter):
@@ -96,7 +87,7 @@ def parse_arguments():
     aggressive_p.add_argument("--subnet", required=False, metavar="CIDR", help="Subnet for deep host discovery")
     aggressive_p.add_argument("--air", nargs="?", const=-1, type=int, default=None, metavar="SECS", help="Enable 802.11 monitor mode capture")
     aggressive_p.add_argument("-s", "--select-bssid", action="store_true", help="Interactively select starting BSSID")
-    aggressive_p.set_defaults(func=handle_aggressive)
+    aggressive_p.set_defaults(func=run_aggressive)
 
     # wifi subcommand
     wifi_p = subparsers.add_parser(
@@ -123,4 +114,3 @@ def parse_arguments():
     wifi_p.set_defaults(func=run_wifi)
 
     return parser.parse_args()
-

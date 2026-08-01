@@ -1,5 +1,5 @@
 """
-cafe_chameleon.network.hijack - Network host impersonation and restoration procedures.
+cafe_chameleon.network.hijack.impersonate - Network host impersonation procedure.
 """
 
 import re
@@ -8,60 +8,13 @@ import time
 from cafe_chameleon.utils.signals import HijackSkipInterrupt
 from cafe_chameleon.utils.process import _run
 from cafe_chameleon.utils.tracing import trace
-from cafe_chameleon.ui.console import log_info, log_plus, log_hijack, log_step, log_wait, set_hijack_status
+from cafe_chameleon.ui.console import log_hijack, set_hijack_status
 from cafe_chameleon.network.sysfs import wait_for_carrier, get_carrier_status
 from cafe_chameleon.network.nmcli import get_active_profile
-from cafe_chameleon.network.mac import set_mac_address, reset_mac_address
+from cafe_chameleon.network.mac import set_mac_address
 from cafe_chameleon.network.arp import send_gratuitous_arp, start_background_garp
 from cafe_chameleon.network.deauth import send_deauth
 from cafe_chameleon.network.internet import has_internet, test_internet_speed
-
-
-def restore(interface: str, macaddress: str, ipmask: str, broadcast: str, gateway: str, profile: str | None = None) -> None:
-    """Refined, fast network restoration procedure with link carrier synchronization and full NM cleanup."""
-    trace(f"[FEATURE] Restoring network configuration on interface {interface} to MAC {macaddress}, IP {ipmask}, GW {gateway}")
-    log_step(f"Restoring HW MAC & network settings on {interface}...")
-
-    active_profile = profile or get_active_profile()
-    if active_profile:
-        _run(["nmcli", "connection", "modify", active_profile, "802-11-wireless.bssid", ""], debug=False)
-        _run(["nmcli", "connection", "modify", active_profile, "802-11-wireless.cloned-mac-address", ""], debug=False)
-
-    reset_mac_address(interface, profile=active_profile)
-
-    # Force physical interface MAC hardware reset via macchanger -p
-    _run(f"ip link set dev {interface} down", debug=False)
-    _run(f"macchanger -p {interface}", debug=False)
-    _run(f"ip link set dev {interface} up", debug=False)
-
-    log_wait("Synchronizing adapter link...")
-    wait_for_carrier(interface, timeout=4.0)
-
-    try:
-        _run(f"ip addr flush dev {interface}")
-        _run(f"ip addr add {ipmask} broadcast {broadcast} dev {interface}")
-    except Exception:
-        pass
-
-    try:
-        _run(f"ip route flush dev {interface}")
-        if gateway:
-            _run(f"ip route replace default via {gateway} dev {interface} onlink")
-    except Exception:
-        pass
-
-    if active_profile:
-        log_wait(f"Reconnecting profile '{active_profile}'...")
-        _run(["nmcli", "connection", "up", active_profile], debug=False, timeout=15.0)
-
-    local_ip_only = ipmask.split("/")[0] if "/" in ipmask else ipmask
-    if gateway and local_ip_only:
-        try:
-            send_gratuitous_arp(interface, local_ip_only, gateway)
-        except Exception:
-            pass
-
-    log_plus("Restored original network configuration.")
 
 
 def hijack(interface: str, ip: str, mac: str, netmask: str, broadcast: str, gateway: str, max_retries: int = 2, timeout_per_retry: float = 4, profile: str | None = None, bssid: str | None = None, channel: int | None = None) -> bool:
@@ -74,7 +27,6 @@ def hijack(interface: str, ip: str, mac: str, netmask: str, broadcast: str, gate
     active_profile = profile or get_active_profile()
 
     try:
-        # 0. Send targeted MDK4 Deauth/Disassoc in Monitor Mode
         send_deauth(mac, bssid, interface, channel=channel)
 
         for attempt in range(1, max_retries + 1):
@@ -166,5 +118,3 @@ def hijack(interface: str, ip: str, mac: str, netmask: str, broadcast: str, gate
 
     log_hijack("\033[91m[-] Host impersonation failed\033[0m")
     return False
-
-

