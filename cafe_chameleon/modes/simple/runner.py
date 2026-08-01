@@ -43,7 +43,7 @@ def run_simple(args, quiet_header: bool = False) -> bool:
         return False
 
     target_str = str(network)
-    set_scan_status(subnet=target_str, count=0, scan_type="Deep Scan" if is_deep else "ARP Probe")
+    set_scan_status(subnet=target_str, count=0, scan_type="Deep Scan" if is_deep else "Nmap Ping Scan")
     profile = getattr(args, "profile", None)
     set_main_status(interface=interface, profile=profile, ssid=auto_params.get("ssid"), status="Subnet Scanning")
 
@@ -78,15 +78,15 @@ def run_simple(args, quiet_header: bool = False) -> bool:
         for sub in subnets:
             try:
                 sub_str = str(sub)
-                set_scan_status(subnet=sub_str, count=len(discovered_devices), scan_type="Deep Scan" if is_deep else "ARP Probe")
+                set_scan_status(subnet=sub_str, count=len(discovered_devices), scan_type="Deep Scan" if is_deep else "Nmap Ping Scan")
 
                 if is_deep:
                     hosts = deep_scan_subnet(sub, interface, gateway_ip=gw_ip, gateway_mac=gw_mac, local_ip=local_ip, local_mac=local_mac, duration=30)
                 else:
-                    hosts = scan_subnet(sub, interface)
+                    hosts = scan_subnet(sub, interface, parent_net=network, gateway_ip=gw_ip, gateway_mac=gw_mac)
 
                 unique_hosts = []
-                seen_ips = set()
+                seen_ips = {h["ip"] for h in discovered_devices}
                 for h in hosts:
                     if h["ip"] == local_ip:
                         continue

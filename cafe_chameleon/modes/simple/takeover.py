@@ -20,7 +20,7 @@ from cafe_chameleon.network.hijack import hijack, restore
 
 def test_discovered_hosts(unique_hosts: list[dict], interface: str, gw_ip: str, gw_mac: str, netmask: str, broadcast: str, local_mac: str, ipmask: str, profile: str | None, args) -> bool:
     """Iterates through discovered active hosts and attempts host impersonation/takeover."""
-    set_scan_status(scan_type="Host Impersonation")
+    set_scan_status(scan_type="N/A")
     log_main("[*] Testing discovered hosts for internet access...")
 
     for host in unique_hosts:

@@ -25,7 +25,7 @@ def deep_scan_subnet(subnet_cidr, interface: str, gateway_ip: str | None = None,
     log_scan(f"[+] Passive scan complete ({len(passive_hosts)} hosts). Dispatching ARP Probes...")
 
     # Phase 2: Active Scapy ARP scan
-    active_hosts = scan_subnet(subnet_cidr, interface)
+    active_hosts = scan_subnet(subnet_cidr, interface, gateway_ip=gateway_ip, gateway_mac=gateway_mac)
     for h in active_hosts:
         hosts_map[h["ip"]] = h["mac"]
 
