@@ -7,9 +7,8 @@ import time
 import traceback
 from typing import List
 
+from cafe_chameleon.config import TRACE_FILE
 from cafe_chameleon.utils.state import get_debug_tracing
-
-TRACE_FILE = "cafe_chameleon_trace.log"
 _TRACE_BUFFER: List[str] = []
 
 

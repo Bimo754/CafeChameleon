@@ -2,17 +2,21 @@
 cafe_chameleon.network.nmcli.bssid - BSSID scanning, BSSID locking, and active BSSID retrieval.
 """
 
+import re
 import time
 
+from cafe_chameleon.config import DEFAULT_BSSID
+from cafe_chameleon.models import BSSIDTarget
 from cafe_chameleon.utils.process import _run
 from cafe_chameleon.utils.tracing import trace
 from cafe_chameleon.ui.console import log_plus, log_warning, log_minus, log_step, log_wait
 from .profiles import get_active_profile, get_ssid_for_profile
 
-DEFAULT_BSSID = "08:FA:28:56:27:80"
+DIGIT_REGEX = re.compile(r"[^\d]")
+CONNECTED_MAC_REGEX = re.compile(r"Connected to\s+([0-9a-fa-f:]+)", re.IGNORECASE)
 
 
-def scan_bssids_for_ssid(target_ssid: str) -> list[dict]:
+def scan_bssids_for_ssid(target_ssid: str) -> list[BSSIDTarget]:
     """Scans for available BSSIDs matching the target SSID."""
     trace(f"[FEATURE] Rescanning Wi-Fi and scanning BSSIDs for target SSID '{target_ssid}'")
     log_step(f"Scanning BSSIDs for '{target_ssid}'...")
@@ -34,25 +38,27 @@ def scan_bssids_for_ssid(target_ssid: str) -> list[dict]:
             active = parts[4].replace("\x00", ":").strip().lower() == "yes"
             if ssid.lower() == target_ssid.lower() and bssid not in seen:
                 seen.add(bssid)
-                results.append({
-                    "bssid": bssid,
-                    "ssid": ssid,
-                    "signal": signal,
-                    "chan": chan,
-                    "active": active
-                })
+                results.append(BSSIDTarget(
+                    bssid=bssid,
+                    ssid=ssid,
+                    signal=signal,
+                    chan=chan,
+                    active=active
+                ))
 
-    import re
-    results.sort(key=lambda x: int(re.sub(r"[^\d]", "", str(x.get("signal", 0)))) if re.sub(r"[^\d]", "", str(x.get("signal", 0))) else 0, reverse=True)
+    def parse_sig(item: BSSIDTarget) -> int:
+        clean = DIGIT_REGEX.sub("", str(item.signal))
+        return int(clean) if clean else 0
+
+    results.sort(key=parse_sig, reverse=True)
     return results
 
 
 def get_connected_bssid(interface: str = "wlan0") -> str:
     """Retrieves the currently connected BSSID using kernel iw link, NetworkManager active BSSID, or dev show."""
-    rc, iw_out = _run(f"iw dev {interface} link", debug=False)
+    rc, iw_out = _run(["iw", "dev", interface, "link"], debug=False)
     if rc == 0 and iw_out:
-        import re
-        m = re.search(r"Connected to\s+([0-9a-fa-f:]+)", iw_out, re.IGNORECASE)
+        m = CONNECTED_MAC_REGEX.search(iw_out)
         if m:
             return m.group(1).upper()
 

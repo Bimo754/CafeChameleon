@@ -1,3 +1,7 @@
+"""
+cafe_chameleon.network.mac - MAC address validation, random generation, and NetworkManager hardware address spoofing.
+"""
+
 import random
 import re
 
@@ -5,10 +9,14 @@ from cafe_chameleon.utils.process import _run
 from cafe_chameleon.utils.state import get_use_original_mac
 from cafe_chameleon.utils.tracing import trace
 
+MAC_VALID_REGEX = re.compile(r"^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$")
+PERM_MAC_REGEX = re.compile(r"Permanent MAC:\s+([0-9a-fa-f:]+)", re.IGNORECASE)
+CURR_MAC_REGEX = re.compile(r"Current MAC:\s+([0-9a-fa-f:]+)", re.IGNORECASE)
+
 
 def is_valid_mac(val: str) -> bool:
     """Returns True if val is a valid 6-byte hexadecimal MAC address string."""
-    return bool(re.match(r"^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$", val)) if val else False
+    return bool(MAC_VALID_REGEX.match(val)) if val else False
 
 
 def generate_random_mac() -> str:
@@ -29,9 +37,9 @@ def get_permanent_mac(interface: str) -> str | None:
     except Exception:
         pass
 
-    rc, out = _run(f"macchanger -s {interface}", debug=False)
+    rc, out = _run(["macchanger", "-s", interface], debug=False)
     if rc == 0 and out:
-        m = re.search(r"Permanent MAC:\s+([0-9a-fa-f:]+)", out, re.IGNORECASE)
+        m = PERM_MAC_REGEX.search(out)
         if m:
             return m.group(1).lower()
     return get_current_mac(interface)
@@ -75,23 +83,21 @@ def set_mac_address(interface: str, mac: str, profile: str | None = None) -> boo
         rc, _ = _run(["nmcli", "connection", "modify", profile, "802-11-wireless.cloned-mac-address", mac], debug=False)
         if rc == 0:
             log_wait(f"Reconnecting profile '{profile}' with MAC {mac}...")
-            _run(f"ip link set dev {interface} up", debug=False)
+            _run(["ip", "link", "set", "dev", interface, "up"], debug=False)
             rc_up, _ = _run(["nmcli", "connection", "up", profile], debug=False, timeout=15.0)
             if rc_up == 0 or wait_for_carrier(interface, timeout=6.0):
                 return True
-            # Retry connection after wifi rescan without tearing down the interface
             log_wait("Rescanning Wi-Fi & retrying reconnect...")
             _run(["nmcli", "device", "wifi", "rescan"], debug=False)
             rc_up2, _ = _run(["nmcli", "connection", "up", profile], debug=False, timeout=15.0)
             if rc_up2 == 0 or wait_for_carrier(interface, timeout=6.0):
                 return True
 
-    # Fallback method (only when NM profile is absent/unavailable): manual link down -> address change -> link up
     log_wait(f"Applying manual MAC change -> {mac}...")
-    _run(f"ip link set dev {interface} down", debug=False)
-    rc_ip, _ = _run(f"ip link set dev {interface} address {mac}", debug=False)
-    rc_mc, _ = _run(f"macchanger -m {mac} {interface}", debug=False)
-    _run(f"ip link set dev {interface} up", debug=False)
+    _run(["ip", "link", "set", "dev", interface, "down"], debug=False)
+    rc_ip, _ = _run(["ip", "link", "set", "dev", interface, "address", mac], debug=False)
+    rc_mc, _ = _run(["macchanger", "-m", mac, interface], debug=False)
+    _run(["ip", "link", "set", "dev", interface, "up"], debug=False)
     wait_for_carrier(interface, timeout=6.0)
 
     if profile:
@@ -122,11 +128,10 @@ def reset_mac_address(interface: str, profile: str | None = None) -> bool:
         if rc_up == 0 or wait_for_carrier(interface, timeout=6.0):
             return True
 
-    # Fallback to manual link down -> macchanger -p -> link up
     log_wait("Restoring hardware MAC via macchanger...")
-    _run(f"ip link set dev {interface} down", debug=False)
-    rc_mc, _ = _run(f"macchanger -p {interface}", debug=False)
-    _run(f"ip link set dev {interface} up", debug=False)
+    _run(["ip", "link", "set", "dev", interface, "down"], debug=False)
+    rc_mc, _ = _run(["macchanger", "-p", interface], debug=False)
+    _run(["ip", "link", "set", "dev", interface, "up"], debug=False)
     wait_for_carrier(interface, timeout=6.0)
 
     if profile:
@@ -134,7 +139,6 @@ def reset_mac_address(interface: str, profile: str | None = None) -> bool:
         _run(["nmcli", "connection", "up", profile], debug=False, timeout=15.0)
 
     return rc_mc == 0
-
 
 
 def get_current_mac(interface: str) -> str | None:
@@ -147,9 +151,9 @@ def get_current_mac(interface: str) -> str | None:
     except Exception:
         pass
 
-    rc, out = _run(f"macchanger -s {interface}", debug=False)
+    rc, out = _run(["macchanger", "-s", interface], debug=False)
     if rc == 0 and out:
-        m = re.search(r"Current MAC:\s+([0-9a-fa-f:]+)", out, re.IGNORECASE)
+        m = CURR_MAC_REGEX.search(out)
         if m:
             return m.group(1).lower()
     return None

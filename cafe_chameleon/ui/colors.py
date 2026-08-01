@@ -19,13 +19,15 @@ BRACKET_OPEN = f"{BOLD}{MAGENTA}[{RESET}"
 BRACKET_CLOSE = f"{BOLD}{MAGENTA}]{RESET}"
 
 
+ANSI_PATTERN = re.compile(r'(\x1b\[[0-9;]*[a-zA-Z])')
+
+
 def colorize_brackets(text: str) -> str:
     """Format visible brackets [ and ] with bold magenta color."""
     if not text:
         return text
 
-    ansi_pattern = re.compile(r'(\x1b\[[0-9;]*[a-zA-Z])')
-    parts = ansi_pattern.split(text)
+    parts = ANSI_PATTERN.split(text)
 
     new_parts = []
     for i, part in enumerate(parts):

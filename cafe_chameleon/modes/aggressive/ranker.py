@@ -4,8 +4,10 @@ cafe_chameleon.modes.aggressive.ranker - BSSID scoring and auto-selection rankin
 
 import re
 
+DIGIT_REGEX = re.compile(r"[^\d]")
 
-def calculate_bssid_score(bssid_item: dict, air_clients_map: dict | None = None) -> tuple[int, int, int]:
+
+def calculate_bssid_score(bssid_item, air_clients_map: dict | None = None) -> tuple[int, int, int]:
     """
     Calculates auto-selection score for a BSSID based on:
     1. Signal strength percentage (heavily prioritized)
@@ -14,8 +16,9 @@ def calculate_bssid_score(bssid_item: dict, air_clients_map: dict | None = None)
     bssid_mac = bssid_item["bssid"].lower()
 
     try:
-        signal_pct = int(re.sub(r"[^\d]", "", str(bssid_item.get("signal", 0))))
-    except Exception:
+        clean_sig = DIGIT_REGEX.sub("", str(bssid_item.get("signal", 0)))
+        signal_pct = int(clean_sig) if clean_sig else 0
+    except (ValueError, TypeError):
         signal_pct = 0
 
     client_count = 0
