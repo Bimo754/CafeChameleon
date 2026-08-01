@@ -25,6 +25,7 @@ def resolve_mac_to_ip(target_mac: str, interface: str, target_subnet: str | None
     if not target_mac:
         return None
 
+    from cafe_chameleon.ui.console import log_hijack
     mac_clean = target_mac.strip().lower()
 
     if not target_subnet:
@@ -66,6 +67,7 @@ def resolve_mac_to_ip(target_mac: str, interface: str, target_subnet: str | None
 
     ip_found = check_kernel_cache()
     if ip_found:
+        log_hijack(f"[+] Kernel ARP cache resolved: {mac_clean} -> {ip_found}")
         return ip_found
 
     # Prepare IP candidate list from subnet
@@ -85,6 +87,7 @@ def resolve_mac_to_ip(target_mac: str, interface: str, target_subnet: str | None
     # Stage 2: Aggressive Unicast ARP Probe Sweep (Bypasses AP Client Isolation)
     if candidate_ips:
         try:
+            log_hijack(f"[*] Resolving {mac_clean} -> Unicast ARP Probe...")
             from scapy.all import Ether, ARP, srp
             unicast_arp_pkts = [
                 Ether(dst=mac_clean) / ARP(op=1, pdst=ip)
@@ -93,16 +96,21 @@ def resolve_mac_to_ip(target_mac: str, interface: str, target_subnet: str | None
             ans, _ = srp(unicast_arp_pkts, timeout=1.5, iface=interface, verbose=False)
             for sent, rcv in ans:
                 if rcv.haslayer(ARP) and rcv[ARP].hwsrc.lower() == mac_clean:
-                    return str(rcv[ARP].psrc)
+                    res_ip = str(rcv[ARP].psrc)
+                    log_hijack(f"\033[92m[+] Unicast ARP resolved: {mac_clean} -> {res_ip}\033[0m")
+                    return res_ip
                 elif rcv.haslayer(Ether) and rcv[Ether].src.lower() == mac_clean:
                     if rcv.haslayer(ARP):
-                        return str(rcv[ARP].psrc)
+                        res_ip = str(rcv[ARP].psrc)
+                        log_hijack(f"\033[92m[+] Unicast ARP resolved: {mac_clean} -> {res_ip}\033[0m")
+                        return res_ip
         except Exception:
             pass
 
     # Stage 3: Aggressive Direct L3 TCP SYN & UDP Frame Injection (Forces TCP RST reply from target OS)
     if candidate_ips:
         try:
+            log_hijack(f"[*] Resolving {mac_clean} -> L3 TCP SYN Probe...")
             from scapy.all import Ether, IP, TCP, UDP, srp
             # Probe common open or closed ports: 80, 443, 445, 135, 8080
             tcp_syn_pkts = [
@@ -113,7 +121,9 @@ def resolve_mac_to_ip(target_mac: str, interface: str, target_subnet: str | None
             for sent, rcv in ans_tcp:
                 if rcv.haslayer(Ether) and rcv[Ether].src.lower() == mac_clean:
                     if rcv.haslayer(IP):
-                        return str(rcv[IP].src)
+                        res_ip = str(rcv[IP].src)
+                        log_hijack(f"\033[92m[+] L3 Probe resolved: {mac_clean} -> {res_ip}\033[0m")
+                        return res_ip
 
             # Alternate port sweep (445 SMB / 443 HTTPS)
             tcp_smb_pkts = [
@@ -124,12 +134,15 @@ def resolve_mac_to_ip(target_mac: str, interface: str, target_subnet: str | None
             for sent, rcv in ans_smb:
                 if rcv.haslayer(Ether) and rcv[Ether].src.lower() == mac_clean:
                     if rcv.haslayer(IP):
-                        return str(rcv[IP].src)
+                        res_ip = str(rcv[IP].src)
+                        log_hijack(f"\033[92m[+] L3 Probe resolved: {mac_clean} -> {res_ip}\033[0m")
+                        return res_ip
         except Exception:
             pass
 
     # Stage 4: DHCP INFORM Direct Query Probe to DHCP Gateway / Broadcast
     try:
+        log_hijack(f"[*] Resolving {mac_clean} -> DHCP Inform Probe...")
         from scapy.all import Ether, IP, UDP, BOOTP, DHCP, srp
         mac_bytes = bytes.fromhex(mac_clean.replace(":", ""))
         rand_xid = random.randint(1, 0xFFFFFFFF)
@@ -150,12 +163,15 @@ def resolve_mac_to_ip(target_mac: str, interface: str, target_subnet: str | None
                 bootp = rcv[BOOTP]
                 for addr in (getattr(bootp, "yiaddr", None), getattr(bootp, "ciaddr", None)):
                     if addr and str(addr) not in ("0.0.0.0", "255.255.255.255"):
-                        return str(addr)
+                        res_ip = str(addr)
+                        log_hijack(f"\033[92m[+] DHCP Inform resolved: {mac_clean} -> {res_ip}\033[0m")
+                        return res_ip
     except Exception:
         pass
 
     # Stage 5: Passive Multicast / Broadcast Traffic Listener (3 seconds)
     try:
+        log_hijack(f"[*] Resolving {mac_clean} -> Passive Listener (3s)...")
         from scapy.all import sniff, Ether, IP, ARP, BOOTP
         sniffed_ip = [None]
 
@@ -187,6 +203,7 @@ def resolve_mac_to_ip(target_mac: str, interface: str, target_subnet: str | None
 
         sniff(iface=interface, timeout=3, prn=passive_mac_callback, store=False)
         if sniffed_ip[0]:
+            log_hijack(f"\033[92m[+] Passive sniff resolved: {mac_clean} -> {sniffed_ip[0]}\033[0m")
             return sniffed_ip[0]
     except Exception:
         pass
@@ -194,6 +211,7 @@ def resolve_mac_to_ip(target_mac: str, interface: str, target_subnet: str | None
     # Stage 6: Active Layer 3 Unicast Sweep to force kernel neighbor population
     if target_subnet:
         try:
+            log_hijack(f"[*] Resolving {mac_clean} -> Subnet L3 Sweep...")
             net_obj = ipaddress.ip_network(target_subnet, strict=False)
             sweep_target = str(net_obj)
             if net_obj.prefixlen < 24:
@@ -227,13 +245,17 @@ def resolve_mac_to_ip(target_mac: str, interface: str, target_subnet: str | None
         # Re-check kernel cache after Layer 3 sweep
         ip_found = check_kernel_cache()
         if ip_found:
+            log_hijack(f"\033[92m[+] Subnet sweep resolved: {mac_clean} -> {ip_found}\033[0m")
             return ip_found
 
     # Stage 7: Trigger ARP resolution scan fallback
     if target_subnet:
+        log_hijack(f"[*] Resolving {mac_clean} -> ARP Scan Fallback...")
         hosts = scan_subnet(target_subnet, interface)
         for h in hosts:
             if h["mac"].lower() == mac_clean:
+                log_hijack(f"\033[92m[+] ARP scan resolved: {mac_clean} -> {h['ip']}\033[0m")
                 return h["ip"]
 
     return None
+

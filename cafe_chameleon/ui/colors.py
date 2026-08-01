@@ -21,7 +21,7 @@ def _log(tag: str, color_code: str, text: str, end: str | None = None, start: st
 
 
 def info(text: str, end: str | None = None, start: str = "") -> None:
-    _log("Info", GREEN, text, end=end, start=start)
+    _log("i", CYAN, text, end=end, start=start)
 
 
 def plus(text: str, end: str | None = None, start: str = "") -> None:
@@ -33,7 +33,7 @@ def gplus(text: str, end: str | None = None, start: str = "") -> None:
 
 
 def question(text: str, end: str | None = None, start: str = "") -> None:
-    _log("Question", YELLOW, text, end=end, start=start)
+    _log("?", YELLOW, text, end=end, start=start)
 
 
 def qmark(text: str, end: str | None = None, start: str = "") -> None:
@@ -41,7 +41,7 @@ def qmark(text: str, end: str | None = None, start: str = "") -> None:
 
 
 def warning(text: str, end: str | None = None, start: str = "") -> None:
-    _log("Warning", RED, text, end=end, start=start)
+    _log("!", RED, text, end=end, start=start)
 
 
 def minus(text: str, end: str | None = None, start: str = "") -> None:
@@ -50,3 +50,13 @@ def minus(text: str, end: str | None = None, start: str = "") -> None:
 
 def bminus(text: str, end: str | None = None, start: str = "") -> None:
     _log("-", BLUE, text, end=end, start=start)
+
+
+def step(text: str, end: str | None = None, start: str = "") -> None:
+    _log("*", CYAN, text, end=end, start=start)
+
+
+def wait(text: str, end: str | None = None, start: str = "") -> None:
+    _log("~", YELLOW, text, end=end, start=start)
+
+
