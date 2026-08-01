@@ -28,7 +28,7 @@ def sweep_l3_and_fallback(mac_clean: str, interface: str, target_subnet: str | N
         if shutil.which("nmap"):
             cmd = [
                 "nmap", "-sn", "-PE", "-PS80,443,8080,53", "-PU53,137,5353",
-                "--min-rate", "400", "-n", "-e", interface, sweep_target
+                "--min-rate", "150", "-n", "-e", interface, sweep_target
             ]
             _run(cmd, debug=False)
         else:
