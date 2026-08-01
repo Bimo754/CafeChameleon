@@ -5,6 +5,7 @@ cafe_chameleon.scanners.arp_scanner - Active Layer 2 Scapy ARP subnet scanner.
 import sys
 
 from cafe_chameleon.ui.console import log_scan
+from cafe_chameleon.utils.process import _run
 
 
 def scan_subnet(subnet_cidr, interface: str) -> list[dict]:
@@ -35,6 +36,7 @@ def scan_subnet(subnet_cidr, interface: str) -> list[dict]:
         sys.exit(1)
     except OSError as e:
         log_scan(f"[-] Interface error on {interface} ({e}). Polling link carrier...")
+        _run(f"ip link set dev {interface} up", debug=False)
         if wait_for_carrier(interface, timeout=4.0):
             try:
                 answered, _ = srp(packet, timeout=2, iface=interface, verbose=False)

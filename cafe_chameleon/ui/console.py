@@ -114,3 +114,16 @@ def log_question(text: str, end: str | None = None, start: str = "") -> None:
     if get_quiet():
         return
     colors.question(text, end=end, start=start)
+
+
+def log_step(text: str, end: str | None = None, start: str = "") -> None:
+    if get_quiet():
+        return
+    colors.step(text, end=end, start=start)
+
+
+def log_wait(text: str, end: str | None = None, start: str = "") -> None:
+    if get_quiet():
+        return
+    colors.wait(text, end=end, start=start)
+

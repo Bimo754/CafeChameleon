@@ -11,7 +11,8 @@ Subcommands:
 import sys
 
 from cafe_chameleon.cli.parser import parse_arguments
-from cafe_chameleon.utils.state import set_debug, set_quiet, set_use_xterm
+from cafe_chameleon.utils.state import set_debug, set_quiet, set_use_xterm, set_use_original_mac, get_debug_tracing
+from cafe_chameleon.utils.tracing import trace, log_exception_to_trace, get_recent_trace, get_trace_filepath
 from cafe_chameleon.utils.signals import restore_and_exit
 from cafe_chameleon.ui.console import init_xterm
 from cafe_chameleon.ui.colors import BOLD, GREEN, RED, RESET
@@ -20,8 +21,13 @@ from cafe_chameleon.ui.colors import BOLD, GREEN, RED, RESET
 def main():
     try:
         args = parse_arguments()
-        if getattr(args, "debug", False):
-            set_debug(True)
+        debug_val = getattr(args, "debug", None)
+        if debug_val:
+            set_debug(debug_val)
+
+        if getattr(args, "original_mac", False):
+            set_use_original_mac(True)
+
         if getattr(args, "quiet", False):
             set_quiet(True)
         if getattr(args, "no_xterm", False):
@@ -43,6 +49,7 @@ def main():
                 count = len(active_windows)
                 print(f"[+] Multi-Window Xterm UI active ({count} centered window{'s' if count != 1 else ''} spawned).")
         cmd = getattr(args, "command", "")
+        trace(f"[FEATURE] Running subcommand '{cmd}' (Original MAC: {getattr(args, 'original_mac', False)})")
         result = args.func(args)
         if cmd in ("aggressive", "simple"):
             if result:
@@ -51,9 +58,17 @@ def main():
                 print(f"\n{BOLD}{RED}[-] Operation Complete: No Internet Access Secured.{RESET}\n")
 
     except KeyboardInterrupt:
+        trace("[FEATURE] Process interrupted by user (Ctrl+C).")
         restore_and_exit("Process interrupted by user (Ctrl+C).")
     except Exception as e:
         import traceback
+        if get_debug_tracing():
+            log_exception_to_trace(e)
+            recent_traces = get_recent_trace(12)
+            print(f"\n{BOLD}{RED}=== TRACING SUMMARY (Last Operations Before Failure) ==={RESET}")
+            for t in recent_traces:
+                print(f"  {t}")
+            print(f"{BOLD}{RED}Full trace log saved to: {get_trace_filepath()}{RESET}\n")
         print(f"\n{BOLD}{RED}=== UNHANDLED EXCEPTION TRACEBACK ==={RESET}")
         traceback.print_exc()
         print(f"{BOLD}{RED}====================================={RESET}\n")

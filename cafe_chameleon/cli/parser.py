@@ -11,8 +11,20 @@ from cafe_chameleon.cli.commands.wifi import run_wifi
 
 
 def parse_arguments():
-    parent_parser = argparse.ArgumentParser(add_help=False)
-    parent_parser.add_argument("--debug", action="store_true", help="Enable verbose debug output for executed commands")
+    parent_parser = argparse.ArgumentParser(add_help=False, argument_default=argparse.SUPPRESS)
+    parent_parser.add_argument(
+        "--debug",
+        nargs="?",
+        const="commands",
+        choices=["commands", "tracing"],
+        help="Enable debug mode: 'commands' (print executed commands to console) or 'tracing' (silently trace feature operations & commands to log file)"
+    )
+    parent_parser.add_argument(
+        "-m", "--original-mac",
+        action="store_true",
+        dest="original_mac",
+        help="Use original MAC address during attack instead of randomizing MAC address"
+    )
     parent_parser.add_argument("-q", "--quiet", action="store_true", help="Suppress non-essential info logs")
     parent_parser.add_argument("--no-xterm", action="store_true", help="Disable multi-window xterm UI layout")
     parent_parser.add_argument("--force", action="store_true", help="Continue working even if internet access exists")
@@ -32,7 +44,7 @@ def parse_arguments():
     simple_p.add_argument("-i", "--interface", required=False, help="Network interface (e.g., wlan0). Auto-detected if omitted.")
     simple_p.add_argument("-t", "--target", required=False, help="Target CIDR block (e.g., 172.16.40.0/22). Auto-detected if omitted.")
     simple_p.add_argument("--subnet", required=False, help="Target subnet for deep host discovery with 30s passive traffic sniffing (e.g., 10.68.192.0/24).")
-    simple_p.add_argument("--air", nargs="?", const=-1, type=int, default=None, help="Enable 802.11 monitor mode over-the-air packet capture using monitor0/managed0. Optional duration in seconds.")
+    simple_p.add_argument("--air", nargs="?", const=-1, type=int, default=None, help="Enable 802.11 monitor mode over-the-air packet capture. Optional duration in seconds.")
     simple_p.set_defaults(func=run_simple)
 
     # aggressive subcommand
@@ -45,12 +57,12 @@ def parse_arguments():
     aggressive_p.add_argument("-p", "--profile", required=False, help="Active Wi-Fi connection profile. Auto-detected if omitted.")
     aggressive_p.add_argument("-t", "--target", required=False, help="Target CIDR block (e.g., 172.16.40.0/22). Auto-detected if omitted.")
     aggressive_p.add_argument("--subnet", required=False, help="Target subnet for deep host discovery with 30s passive traffic sniffing (e.g., 10.68.192.0/24).")
-    aggressive_p.add_argument("--air", nargs="?", const=-1, type=int, default=None, help="Enable 802.11 monitor mode over-the-air packet capture using monitor0/managed0. Optional duration in seconds.")
+    aggressive_p.add_argument("--air", nargs="?", const=-1, type=int, default=None, help="Enable 802.11 monitor mode over-the-air packet capture. Optional duration in seconds.")
     aggressive_p.add_argument("-s", "--select-bssid", action="store_true", help="Prompt user to select starting BSSID from discovered list")
     aggressive_p.set_defaults(func=handle_aggressive)
 
     # wifi subcommand
-    wifi_p = subparsers.add_parser("wifi", help="WiFi BSSID lock / auto-roam / status", parents=[parent_parser])
+    wifi_p = subparsers.add_parser("wifi", help="WiFi BSSID lock / auto-roam / status / reset MAC", parents=[parent_parser])
     group = wifi_p.add_mutually_exclusive_group(required=True)
     group.add_argument(
         "--lock", nargs="*", metavar=("BSSID", "PROFILE"),
@@ -61,6 +73,10 @@ def parse_arguments():
         help="Remove BSSID lock and connect to strongest AP (auto-roam). Optional profile name."
     )
     group.add_argument("--status", action="store_true", help="Show current Wi-Fi status and BSSID lock info")
+    group.add_argument(
+        "--reset-mac", nargs="*", metavar="PROFILE",
+        help="Reset MAC address back to original hardware default. Optional profile name."
+    )
     wifi_p.set_defaults(func=run_wifi)
 
     return parser.parse_args()

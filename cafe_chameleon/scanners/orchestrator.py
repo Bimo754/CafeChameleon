@@ -49,6 +49,11 @@ def deep_scan_subnet(subnet_cidr, interface: str, gateway_ip: str | None = None,
             continue
         if local_mac_clean and mac_lower == local_mac_clean:
             continue
+        if mac_lower.startswith("01:00:5e") or mac_lower.startswith("33:33") or mac_lower.startswith("00:00:5e"):
+            continue
+        if gw_mac_clean and len(gw_mac_clean) >= 14 and len(mac_lower) >= 14:
+            if mac_lower[:14] == gw_mac_clean[:14]:
+                continue
         user_hosts.append({"ip": ip, "mac": mac})
 
     return user_hosts

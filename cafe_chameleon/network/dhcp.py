@@ -11,17 +11,18 @@ from cafe_chameleon.utils.process import _run
 from cafe_chameleon.ui.console import log_hijack
 
 
-def query_dhcp_lease_ip(interface: str, target_mac: str | None = None, timeout: float = 3.0) -> str | None:
+def query_dhcp_lease_ip(interface: str, target_mac: str | None = None, timeout: float = 2.0) -> str | None:
     """
-    Issues a DHCP Discover/Request packet for a specific hardware MAC address
+    Issues a DHCP Discover packet for a specific hardware MAC address
     to retrieve its exact leased IPv4 address directly from the network's DHCP server.
     Uses Scapy raw socket DISCOVER with explicit hardware Client-ID as the primary method,
-    bypassing system dhclient DUID caches. Fallbacks to dhclient with config overrides.
+    bypassing system dhclient DUID caches. Fallbacks to non-destructive dhclient config override.
     """
-    log_hijack(f"[*] Querying DHCP lease for interface {interface}...")
+    mac_label = f" for {target_mac}" if target_mac else ""
+    log_hijack(f"[*] Querying DHCP lease{mac_label}...")
 
-    # Flush any previous IP configuration on the interface before querying
-    _run(f"ip addr flush dev {interface}", debug=False, timeout=2.0)
+    # Ensure link is up before sending raw frames
+    _run(f"ip link set dev {interface} up", debug=False, timeout=2.0)
 
     # 1. Primary: Scapy Raw Socket DHCP DISCOVER with target MAC Client-ID & random XID
     try:
@@ -42,23 +43,25 @@ def query_dhcp_lease_ip(interface: str, target_mac: str | None = None, timeout: 
                 "end"
             ])
         )
+        log_hijack(f"[*] Broadcasting Scapy DHCP Discover ({mac_str})...")
         ans = srp1(dhcp_discover, iface=interface, timeout=timeout, verbose=False)
         if ans and ans.haslayer(BOOTP):
             bootp = ans[BOOTP]
             yiaddr = str(getattr(bootp, "yiaddr", "0.0.0.0"))
             ciaddr = str(getattr(bootp, "ciaddr", "0.0.0.0"))
             if yiaddr not in ("0.0.0.0", "255.255.255.255"):
-                log_hijack(f"[+] DHCP server offered IP {yiaddr} for MAC {mac_str}")
+                log_hijack(f"\033[92m[+] DHCP offered IP: {yiaddr}\033[0m")
                 return yiaddr
             if ciaddr not in ("0.0.0.0", "255.255.255.255"):
-                log_hijack(f"[+] DHCP server offered IP {ciaddr} for MAC {mac_str}")
+                log_hijack(f"\033[92m[+] DHCP offered IP: {ciaddr}\033[0m")
                 return ciaddr
     except Exception:
         pass
 
-    # 2. Secondary Fallback: dhclient with custom client-id config override
+    # 2. Secondary Fallback: dhclient without link-release (-r)
     try:
         if shutil.which("dhclient"):
+            log_hijack("[*] Requesting DHCP via dhclient fallback...")
             pid_file = f"/tmp/dhcp_{interface}.pid"
             lease_file = f"/tmp/dhcp_{interface}.leases"
             conf_file = f"/tmp/dhcp_{interface}.conf"
@@ -74,16 +77,28 @@ def query_dhcp_lease_ip(interface: str, target_mac: str | None = None, timeout: 
             with open(conf_file, "w") as f:
                 f.write(f'send dhcp-client-identifier 01:{mac_str.lower()};\n')
 
-            _run(f"dhclient -r {interface}", debug=False, timeout=2.0)
-            _run(f"dhclient -1 -timeout 3 -cf {conf_file} -pf {pid_file} -lf {lease_file} {interface}", debug=False, timeout=4.0)
+            _run(f"dhclient -1 -timeout 2 -cf {conf_file} -pf {pid_file} -lf {lease_file} {interface}", debug=False, timeout=3.0)
             rc, out = _run(f"ip -o -4 addr show dev {interface}", debug=False, timeout=2.0)
+
+            if os.path.exists(pid_file):
+                try:
+                    with open(pid_file) as pf:
+                        pid = pf.read().strip()
+                        if pid.isdigit():
+                            _run(f"kill -9 {pid}", debug=False)
+                except Exception:
+                    pass
+
             if out:
                 m = re.search(r"inet\s+([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)", out)
                 if m:
                     ip = m.group(1)
                     if ip not in ("0.0.0.0", "127.0.0.1"):
+                        log_hijack(f"\033[92m[+] dhclient assigned IP: {ip}\033[0m")
                         return ip
     except Exception:
         pass
 
+    log_hijack("\033[91m[-] DHCP query timeout / no offer received\033[0m")
     return None
+

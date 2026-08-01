@@ -3,6 +3,7 @@ cafe_chameleon.scanners.air_scanner - 802.11 Monitor Mode Over-The-Air Client Di
 """
 
 import logging
+import shutil
 import threading
 import time
 
@@ -29,22 +30,48 @@ def get_monitor_interface(default_iface: str = "wlan0") -> str:
 
 def set_monitor_mode(interface: str = "wlan0") -> str:
     """
-    Switches interface to 802.11 monitor mode using /usr/local/bin/monitor0.
+    Switches interface to 802.11 monitor mode natively using airmon-ng or iw/ip.
     Returns the monitor interface name (e.g. wlan0mon or wlan0).
     """
-    log_air("Switching interface to 802.11 MONITOR mode...")
-    _run(["/bin/bash", "/usr/local/bin/monitor0"])
+    log_air("[*] Switching interface -> MONITOR mode...")
+
+    if shutil.which("airmon-ng"):
+        _run(["airmon-ng", "check", "kill"], debug=False)
+        _run(["airmon-ng", "start", interface], debug=False)
+    else:
+        _run(["ip", "link", "set", "dev", interface, "down"], debug=False)
+        _run(["iw", "dev", interface, "set", "type", "monitor"], debug=False)
+        _run(["ip", "link", "set", "dev", interface, "up"], debug=False)
+
     mon_iface = get_monitor_interface(interface)
-    log_air(f"[+] Monitor mode active on: {mon_iface}")
+    log_air(f"[+] Monitor mode active: {mon_iface}")
     return mon_iface
 
 
 def set_managed_mode(interface: str = "wlan0") -> None:
     """
-    Restores interface to MANAGED mode and restarts NetworkManager using /usr/local/bin/managed0.
+    Restores interface to MANAGED mode natively and restarts NetworkManager / wpa_supplicant.
     """
-    log_air("Restoring interface to MANAGED mode...")
-    _run(["/bin/bash", "/usr/local/bin/managed0"])
+    log_air("[*] Restoring interface -> MANAGED mode...")
+    mon_iface = get_monitor_interface(interface)
+
+    if shutil.which("airmon-ng"):
+        if mon_iface != interface:
+            _run(["airmon-ng", "stop", mon_iface], debug=False)
+        _run(["airmon-ng", "stop", interface], debug=False)
+
+    # Native iw/ip fallback / enforcement to ensure managed mode state
+    _run(["ip", "link", "set", "dev", interface, "down"], debug=False)
+    _run(["iw", "dev", interface, "set", "type", "managed"], debug=False)
+    _run(["ip", "link", "set", "dev", interface, "up"], debug=False)
+
+    # Restart NetworkManager & wpa_supplicant services
+    if shutil.which("systemctl"):
+        _run(["systemctl", "restart", "wpa_supplicant"], debug=False)
+        _run(["systemctl", "restart", "NetworkManager"], debug=False)
+    elif shutil.which("service"):
+        _run(["service", "wpa_supplicant", "restart"], debug=False)
+        _run(["service", "NetworkManager", "restart"], debug=False)
 
     start_t = time.time()
     while time.time() - start_t < 10:
@@ -57,10 +84,11 @@ def set_managed_mode(interface: str = "wlan0") -> None:
     log_air("[+] Interface restored to MANAGED mode.")
 
 
-def sniff_air_clients(target_bssids: list[str], interface: str = "wlan0", duration: int = 25) -> dict:
+def sniff_air_clients(target_bssids: list[str], interface: str = "wlan0", duration: int = 25, target_channels: list[int] | None = None) -> dict:
     """
     Switches to monitor mode, sniffs 802.11 frames over-the-air for `duration` seconds,
     maps active client MAC and IP addresses to target BSSIDs, and cleanly restores managed mode.
+    Focuses channel hopping specifically on target_channels when supplied.
 
     Returns dict: { 'bssid_mac': { 'client_mac': 'client_ip' or None } }
     """
@@ -91,10 +119,26 @@ def sniff_air_clients(target_bssids: list[str], interface: str = "wlan0", durati
         ignore_macs.add(local_mac)
     ignore_macs.update(target_bssids_set)
 
-    log_air(f"=== 802.11 AIR SNIFFER ({duration}s Monitor Capture) ===", clear=True)
+    log_air(f"========================================\n  802.11 AIR SNIFFER ({duration}s Capture)\n========================================", clear=True)
     mon_iface = set_monitor_mode(interface)
 
-    log_air(f"Sniffing 802.11 over-the-air frames on {mon_iface} for {duration}s...")
+    valid_target_channels = []
+    if target_channels:
+        for ch in target_channels:
+            try:
+                ch_int = int(ch)
+                if ch_int > 0 and ch_int not in valid_target_channels:
+                    valid_target_channels.append(ch_int)
+            except (ValueError, TypeError):
+                pass
+
+    if valid_target_channels:
+        log_air(f"Optimizing channel hopper -> Channels: {valid_target_channels}")
+        hop_channels = valid_target_channels
+    else:
+        hop_channels = [1, 6, 11, 36, 40, 44, 48, 52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144, 149, 153, 157, 161, 165, 2, 3, 4, 5, 7, 8, 9, 10]
+
+    log_air(f"[*] Sniffing frames on {mon_iface} ({duration}s)...")
 
     def air_packet_callback(pkt):
         if not pkt.haslayer(Dot11):
@@ -183,33 +227,78 @@ def sniff_air_clients(target_bssids: list[str], interface: str = "wlan0", durati
             if ":" in str(src_ip) or str(src_ip) in ("0.0.0.0", "255.255.255.255"):
                 src_ip = None
 
-        # Determine BSSID and Client MAC from 802.11 header addresses
-        for bssid_candidate in (addr3, addr1, addr2):
-            if bssid_candidate and bssid_candidate in target_bssids_set:
-                matched_bssid = bssid_candidate
+        # Determine BSSID and Client MAC from 802.11 header addresses and Frame Control direction
+        fc = dot11.FCfield if hasattr(dot11, "FCfield") and dot11.FCfield is not None else 0
+        to_ds = bool(fc & 1)
+        from_ds = bool(fc & 2)
 
-                for client_candidate in (bootp_mac, addr2, addr1):
-                    if client_candidate and client_candidate != matched_bssid and client_candidate not in ignore_macs:
-                        try:
-                            first_byte = int(client_candidate.split(":")[0], 16)
-                            if first_byte & 1:  # Multicast / Broadcast bit set
-                                continue
-                        except Exception:
-                            continue
+        matched_bssid = None
+        client_candidate = None
 
-                        existing_ip = bssid_to_clients[matched_bssid].get(client_candidate)
-                        if client_candidate not in bssid_to_clients[matched_bssid] or (not existing_ip and src_ip):
-                            bssid_to_clients[matched_bssid][client_candidate] = src_ip
-                            ip_str = f" ({src_ip})" if src_ip else ""
-                            log_air(f"  [+] Caught Client: {client_candidate}{ip_str} on BSSID {matched_bssid}")
+        if to_ds and not from_ds:
+            # Client -> AP (Data frame): addr1=BSSID (RA), addr2=Client MAC (TA/SA), addr3=DA (Gateway/Destination)
+            if addr1 and addr1 in target_bssids_set:
+                matched_bssid = addr1
+                client_candidate = bootp_mac or addr2
+        elif from_ds and not to_ds:
+            # AP -> Client (Data frame): addr1=Client MAC (RA/DA), addr2=BSSID (TA/SA), addr3=SA (Gateway/Source)
+            if addr2 and addr2 in target_bssids_set:
+                matched_bssid = addr2
+                client_candidate = bootp_mac or addr1
+        elif not to_ds and not from_ds:
+            # Management / Control / IBSS frames
+            if dot11.type == 0 and hasattr(dot11, "subtype"):
+                if dot11.subtype in (0, 2, 11):  # Active Association / Reassociation / Authentication Requests
+                    if addr1 and addr1 in target_bssids_set:
+                        matched_bssid = addr1
+                        client_candidate = bootp_mac or addr2
+                    elif addr3 and addr3 in target_bssids_set:
+                        matched_bssid = addr3
+                        client_candidate = bootp_mac or addr2
+                elif dot11.subtype in (1, 3):  # Association / Reassociation Responses from AP
+                    if addr2 and addr2 in target_bssids_set:
+                        matched_bssid = addr2
+                        client_candidate = bootp_mac or addr1
+                    elif addr3 and addr3 in target_bssids_set:
+                        matched_bssid = addr3
+                        client_candidate = bootp_mac or addr1
+
+        if matched_bssid and client_candidate:
+            client_candidate = client_candidate.lower()
+            if client_candidate != matched_bssid and client_candidate not in ignore_macs:
+                # Check for multicast/broadcast/VRRP or AP BSSID prefix match (same physical AP)
+                is_invalid = False
+                if client_candidate.startswith("01:00:5e") or client_candidate.startswith("33:33") or client_candidate.startswith("00:00:5e"):
+                    is_invalid = True
+
+                if not is_invalid:
+                    try:
+                        first_byte = int(client_candidate.split(":")[0], 16)
+                        if first_byte & 1:  # Multicast / Broadcast bit
+                            is_invalid = True
+                    except Exception:
+                        is_invalid = True
+
+                if not is_invalid and len(client_candidate) >= 14:
+                    client_prefix = client_candidate[:14]
+                    for tb in target_bssids_set:
+                        if len(tb) >= 14 and client_prefix == tb[:14]:
+                            is_invalid = True
+                            break
+
+                if not is_invalid:
+                    existing_ip = bssid_to_clients[matched_bssid].get(client_candidate)
+                    if client_candidate not in bssid_to_clients[matched_bssid] or (not existing_ip and src_ip):
+                        bssid_to_clients[matched_bssid][client_candidate] = src_ip
+                        ip_str = f" ({src_ip})" if src_ip else ""
+                        log_air(f"  [+] Target Client: {client_candidate}{ip_str} on BSSID {matched_bssid}")
 
     stop_hopper = threading.Event()
 
     def channel_hopper(iface):
-        channels = [1, 6, 11, 36, 40, 44, 48, 52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144, 149, 153, 157, 161, 165, 2, 3, 4, 5, 7, 8, 9, 10]
         idx = 0
         while not stop_hopper.is_set():
-            ch = channels[idx % len(channels)]
+            ch = hop_channels[idx % len(hop_channels)]
             _run(["iw", "dev", iface, "set", "channel", str(ch)], debug=False)
             idx += 1
             time.sleep(0.25)
@@ -220,7 +309,7 @@ def sniff_air_clients(target_bssids: list[str], interface: str = "wlan0", durati
     try:
         sniff(iface=mon_iface, timeout=duration, prn=air_packet_callback, store=False)
     except (AirSkipInterrupt, KeyboardInterrupt):
-        log_air("\n\033[93m[-] Ctrl+C pressed in Air window! Stopping air sniff and proceeding with captured targets...\033[0m")
+        log_air("\n\033[93m[-] Stopped air sniff. Processing captured targets...\033[0m")
     except Exception as e:
         log_air(f"[-] Over-the-air capture exception on {mon_iface}: {e}")
     finally:
@@ -230,8 +319,9 @@ def sniff_air_clients(target_bssids: list[str], interface: str = "wlan0", durati
 
     total_clients = sum(len(c) for c in bssid_to_clients.values())
     if total_clients > 0:
-        log_air(f"\n[+] Air Sniff Complete: Found {total_clients} target client MAC(s).")
+        log_air(f"\n[+] Air Sniff Complete: Found {total_clients} target client(s).")
     else:
-        log_air("\n[Info] Air Sniff Complete: No active client MACs captured.")
+        log_air("\n[i] Air Sniff Complete: No active clients captured.")
 
     return bssid_to_clients
+

