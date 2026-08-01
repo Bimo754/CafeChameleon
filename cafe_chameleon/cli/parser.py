@@ -8,17 +8,22 @@ from cafe_chameleon.network.nmcli import DEFAULT_BSSID
 from cafe_chameleon.modes.simple import run_simple
 from cafe_chameleon.modes.aggressive import run_aggressive
 from cafe_chameleon.modes.wifi import run_wifi
-from cafe_chameleon.ui.colors import BOLD, CYAN, RESET
+from cafe_chameleon.ui.colors import BOLD, CYAN, YELLOW, RESET
 
 
 class CleanHelpFormatter(argparse.HelpFormatter):
-    """Custom compact help formatter with clear column alignment and concise output."""
+    """Custom streamlined help formatter with section heading colors and tight single-line alignment."""
+
     def __init__(self, prog):
-        super().__init__(prog, max_help_position=30, width=100)
+        super().__init__(prog, max_help_position=32, width=140)
+
+    def start_section(self, heading):
+        heading_colored = f"{BOLD}{CYAN}{heading}{RESET}"
+        super().start_section(heading_colored)
 
     def _format_action_invocation(self, action):
         if not action.option_strings:
-            metavar, = self._metavar_formatter(action, action.dest)(1)
+            metavar = self._metavar_formatter(action, action.dest)(1)[0]
             return metavar
         else:
             parts = []
@@ -27,35 +32,67 @@ class CleanHelpFormatter(argparse.HelpFormatter):
             else:
                 default = action.dest.upper()
                 args_string = self._format_args(action, default)
-                for option_string in action.option_strings:
-                    parts.append(f"{option_string}")
+                for opt in action.option_strings:
+                    parts.append(opt)
                 parts[-1] += f" {args_string}"
             return ", ".join(parts)
 
+    def _format_action(self, action):
+        if isinstance(action, argparse._SubParsersAction):
+            lines = []
+            for subaction in action._get_subactions():
+                cmd_header = subaction.dest
+                help_position = self._max_help_position
+                help_text = subaction.help if subaction.help else ""
+                indent = " " * (help_position - len(cmd_header))
+                lines.append("%*s%s%s%s\n" % (self._current_indent, "", cmd_header, indent, help_text))
+            return "".join(lines)
+
+        action_header = self._format_action_invocation(action)
+        help_position = self._max_help_position
+
+        if not action.help:
+            tup = (self._current_indent, "", action_header)
+            return "%*s%s\n" % tup
+        else:
+            help_text = self._expand_help(action)
+            if len(action_header) < help_position:
+                indent = " " * (help_position - len(action_header))
+                return "%*s%s%s%s\n" % (self._current_indent, "", action_header, indent, help_text)
+            else:
+                indent = " " * help_position
+                return "%*s%s\n%s%s\n" % (self._current_indent, "", action_header, indent, help_text)
+
+    def _format_usage(self, usage, actions, groups, prefix):
+        if prefix is None:
+            prefix = f"{BOLD}{YELLOW}Usage:{RESET} "
+        else:
+            prefix = f"{BOLD}{YELLOW}{prefix}{RESET}"
+        return super()._format_usage(usage, actions, groups, prefix)
+
 
 def parse_arguments():
-    parent_parser = argparse.ArgumentParser(add_help=False, argument_default=argparse.SUPPRESS)
-    parent_parser.add_argument(
-        "-i", "--interface", required=False, metavar="IFACE",
-        help="Network interface (e.g. wlan0) [default: auto]"
-    )
-    parent_parser.add_argument(
-        "-m", "--original-mac", action="store_true", dest="original_mac",
-        help="Use hardware MAC (do not randomize)"
-    )
-    parent_parser.add_argument("-q", "--quiet", action="store_true", help="Suppress info logs")
-    parent_parser.add_argument("--no-xterm", action="store_true", help="Disable multi-window xterm UI")
-    parent_parser.add_argument("--force", action="store_true", help="Continue work even if internet is active")
-    parent_parser.add_argument(
+    # Common execution flags shared across all commands (including wifi)
+    common_parser = argparse.ArgumentParser(add_help=False, argument_default=argparse.SUPPRESS)
+    common_exec = common_parser.add_argument_group("Global Flags")
+    common_exec.add_argument("-q", "--quiet", action="store_true", help="Suppress info logs")
+    common_exec.add_argument(
         "--debug", nargs="?", const="commands", choices=["commands", "tracing"], metavar="MODE",
-        help="Debug mode: 'commands' or 'tracing'"
+        help="Debug mode ('commands' or 'tracing')"
     )
+    common_exec.add_argument("-h", "--help", action="help", help="Show help message")
 
+    # Parent parser for attack & scanning modes (simple & aggressive ONLY)
+    scan_parent_parser = argparse.ArgumentParser(add_help=False, argument_default=argparse.SUPPRESS, parents=[common_parser])
+
+    # Top-level main parser
     parser = argparse.ArgumentParser(
         prog="cafe-chameleon",
-        description=f"{BOLD}{CYAN}CafeChameleon{RESET} ─ Captive Network Impersonation & Internet Toolkit",
+        usage="cafe-chameleon <subcommand> [options]",
+        description=f"{BOLD}{CYAN}CafeChameleon{RESET} ─ Captive portal session hijacker and network impersonation toolkit.",
         formatter_class=CleanHelpFormatter,
-        parents=[parent_parser]
+        parents=[common_parser],
+        add_help=False
     )
 
     subparsers = parser.add_subparsers(dest="command", title="Subcommands", required=True)
@@ -63,53 +100,70 @@ def parse_arguments():
     # simple subcommand
     simple_p = subparsers.add_parser(
         "simple",
-        help="Layer 2 ARP scan & host impersonation",
-        description=f"{BOLD}{CYAN}Simple Mode{RESET} ─ Layer 2 ARP scan & host impersonation",
+        help="Hijack sessions using subnet blocks ping scanning",
+        usage="cafe-chameleon simple [options]",
+        description=f"{BOLD}{CYAN}Simple Mode{RESET} ─ Hijack sessions using subnet blocks ping scanning",
         formatter_class=CleanHelpFormatter,
-        parents=[parent_parser]
+        parents=[scan_parent_parser],
+        add_help=False
     )
-    simple_p.add_argument("-t", "--target", required=False, metavar="CIDR", help="Target CIDR subnet [default: auto]")
-    simple_p.add_argument("--subnet", required=False, metavar="CIDR", help="Subnet for deep host discovery")
-    simple_p.add_argument("-w", "--wide", action="store_true", help="Expand target subnet to /22 (1024 IPs) for maximum target discovery")
-    simple_p.add_argument("--air", nargs="?", const=-1, type=int, default=None, metavar="SECS", help="Enable 802.11 monitor mode capture")
+    s_opts = simple_p.add_argument_group("Options")
+    s_opts.add_argument("-t", "--target", required=False, metavar="CIDR", help="Target CIDR subnet [default: auto]")
+    s_opts.add_argument("--subnet", required=False, metavar="CIDR", help="Subnet for deep host discovery")
+    s_opts.add_argument("-w", "--wide", action="store_true", help="Expand target scan to /22 subnet")
+    s_opts.add_argument("--air", nargs="?", const=-1, type=int, default=None, metavar="SECS", help="Enable 802.11 monitor capture")
+    s_opts.add_argument("-i", "--interface", required=False, metavar="IFACE", help="Network interface [default: auto]")
+    s_opts.add_argument("-m", "--original-mac", action="store_true", dest="original_mac", help="Use hardware MAC (do not randomize)")
+    s_opts.add_argument("--force", action="store_true", help="Force scan even if internet is active")
+    s_opts.add_argument("--no-xterm", action="store_true", help="Disable multi-window UI")
     simple_p.set_defaults(func=run_simple)
 
     # aggressive subcommand
     aggressive_p = subparsers.add_parser(
         "aggressive",
-        help="Multi-BSSID exploration & scan until internet online",
-        description=f"{BOLD}{CYAN}Aggressive Mode{RESET} ─ Multi-BSSID exploration & scan until internet online",
+        help="Hijack sessions of Multi-BSSID networks using AP roaming & air target discovery",
+        usage="cafe-chameleon aggressive [options]",
+        description=f"{BOLD}{CYAN}Aggressive Mode{RESET} ─ Hijack sessions of Multi-BSSID networks using AP roaming & air target discovery",
         formatter_class=CleanHelpFormatter,
-        parents=[parent_parser]
+        parents=[scan_parent_parser],
+        add_help=False
     )
-    aggressive_p.add_argument("-p", "--profile", required=False, metavar="NAME", help="Active Wi-Fi profile [default: auto]")
-    aggressive_p.add_argument("-t", "--target", required=False, metavar="CIDR", help="Target CIDR subnet [default: auto]")
-    aggressive_p.add_argument("--subnet", required=False, metavar="CIDR", help="Subnet for deep host discovery")
-    aggressive_p.add_argument("--air", nargs="?", const=-1, type=int, default=None, metavar="SECS", help="Enable 802.11 monitor mode capture")
-    aggressive_p.add_argument("-s", "--select-bssid", action="store_true", help="Interactively select starting BSSID")
+    a_opts = aggressive_p.add_argument_group("Options")
+    a_opts.add_argument("-p", "--profile", required=False, metavar="NAME", help="Active Wi-Fi profile [default: auto]")
+    a_opts.add_argument("-t", "--target", required=False, metavar="CIDR", help="Target CIDR subnet [default: auto]")
+    a_opts.add_argument("--subnet", required=False, metavar="CIDR", help="Subnet for deep host discovery")
+    a_opts.add_argument("-s", "--select-bssid", action="store_true", help="Interactively select starting BSSID")
+    a_opts.add_argument("--air", nargs="?", const=-1, type=int, default=None, metavar="SECS", help="Enable 802.11 monitor capture")
+    a_opts.add_argument("-i", "--interface", required=False, metavar="IFACE", help="Network interface [default: auto]")
+    a_opts.add_argument("-m", "--original-mac", action="store_true", dest="original_mac", help="Use hardware MAC (do not randomize)")
+    a_opts.add_argument("--force", action="store_true", help="Force scan even if internet is active")
+    a_opts.add_argument("--no-xterm", action="store_true", help="Disable multi-window UI")
     aggressive_p.set_defaults(func=run_aggressive)
 
-    # wifi subcommand
+    # wifi subcommand (uses common_parser ONLY, no network/xterm/mac/force flags)
     wifi_p = subparsers.add_parser(
         "wifi",
-        help="Wi-Fi BSSID lock, auto-roam & MAC management",
-        description=f"{BOLD}{CYAN}Wi-Fi Controller{RESET} ─ BSSID lock, auto-roam & MAC management",
+        help="Hijacked sessions connectivity & hardware properties management",
+        usage="cafe-chameleon wifi <action>",
+        description=f"{BOLD}{CYAN}Wi-Fi Controller{RESET} ─ Hijacked sessions connectivity & hardware properties management",
         formatter_class=CleanHelpFormatter,
-        parents=[parent_parser]
+        parents=[common_parser],
+        add_help=False
     )
-    group = wifi_p.add_mutually_exclusive_group(required=True)
-    group.add_argument(
-        "--lock", nargs="*", metavar=("BSSID", "PROFILE"),
+    wifi_action_grp = wifi_p.add_argument_group("Actions")
+    wifi_mut = wifi_action_grp.add_mutually_exclusive_group(required=True)
+    wifi_mut.add_argument(
+        "-l", "--lock", nargs="*", metavar="BSSID",
         help=f"Lock connection to BSSID (default: {DEFAULT_BSSID})"
     )
-    group.add_argument(
-        "--auto", nargs="*", metavar="PROFILE",
-        help="Remove BSSID lock & auto-roam to strongest AP"
+    wifi_mut.add_argument(
+        "-a", "--auto", nargs="*", metavar="PROFILE",
+        help="Auto-roam to strongest AP"
     )
-    group.add_argument("--status", action="store_true", help="Display Wi-Fi status & lock info")
-    group.add_argument(
-        "--reset-mac", nargs="*", metavar="PROFILE",
-        help="Reset MAC address back to original hardware default"
+    wifi_mut.add_argument("-s", "--status", action="store_true", help="Show Wi-Fi & lock status")
+    wifi_mut.add_argument(
+        "-r", "--reset-mac", nargs="*", metavar="PROFILE",
+        help="Reset MAC address to default"
     )
     wifi_p.set_defaults(func=run_wifi)
 
