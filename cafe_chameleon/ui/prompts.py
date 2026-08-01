@@ -4,7 +4,7 @@ cafe_chameleon.ui.prompts - Interactive user confirmation prompts.
 
 import sys
 
-from cafe_chameleon.ui.console import log_main
+from cafe_chameleon.ui.console import log_main, get_user_input
 
 
 def ask_proceed(prompt: str = "Do you want to proceed with the attack? [Y/n]: ") -> bool:
@@ -16,20 +16,11 @@ def ask_proceed(prompt: str = "Do you want to proceed with the attack? [Y/n]: ")
     if not sys.stdin.isatty():
         return True
 
-    log_main(f"\n[?] {prompt}")
-    try:
-        sys.stdout.write(f"\033[93m[?] {prompt}\033[0m ")
-        sys.stdout.flush()
-        line = sys.stdin.readline()
-        if not line:
-            return False
-        ans = line.strip().lower()
-        if ans in ("n", "no"):
-            return False
-        return True
-    except (KeyboardInterrupt, EOFError):
-        sys.stdout.write("\n")
+    ans_raw = get_user_input(f"[?] {prompt}")
+    ans = ans_raw.strip().lower()
+    if ans in ("n", "no"):
         return False
+    return True
 
 
 def ask_restore(default_restore: bool = False, prompt: str = "Do you want to restore original MAC and network settings?") -> bool:
@@ -45,19 +36,12 @@ def ask_restore(default_restore: bool = False, prompt: str = "Do you want to res
 
     options = "[Y/n]" if default_restore else "[y/N]"
     full_prompt = f"{prompt} {options}: "
-    log_main(f"\n[?] {full_prompt}")
-    try:
-        sys.stdout.write(f"\033[93m[?] {full_prompt}\033[0m ")
-        sys.stdout.flush()
-        line = sys.stdin.readline()
-        if not line:
-            return default_restore
-        ans = line.strip().lower()
-        if ans in ("y", "yes"):
-            return True
-        elif ans in ("n", "no"):
-            return False
+    ans_raw = get_user_input(f"[?] {full_prompt}")
+    if not ans_raw:
         return default_restore
-    except (KeyboardInterrupt, EOFError):
-        sys.stdout.write("\n")
-        return default_restore
+    ans = ans_raw.strip().lower()
+    if ans in ("y", "yes"):
+        return True
+    elif ans in ("n", "no"):
+        return False
+    return default_restore

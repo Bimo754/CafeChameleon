@@ -1,13 +1,69 @@
-"""
-cafe_chameleon.scanners.detector - Auto-detect local interface, IP, MAC, gateway, subnet CIDR, and SSID.
-"""
-
+import os
 import re
 import sys
 
 from cafe_chameleon.utils.process import _run
-from cafe_chameleon.ui.console import log_scan
+from cafe_chameleon.ui.console import log_scan, log_warning
 from cafe_chameleon.network.internet import has_internet
+
+
+def is_valid_managed_iface(item: str) -> bool:
+    """Returns True if interface is a physical/managed network interface (not loopback, docker, or monitor mode)."""
+    if not item or item == "lo":
+        return False
+    if any(item.startswith(p) for p in ("br-", "veth", "docker", "lxc", "tun", "tap", "virbr", "mon")):
+        return False
+    if any(item.endswith(s) for s in ("mon", "mon0", "mon1", "mon2")):
+        return False
+    return True
+
+
+def validate_interface(iface: str | None) -> bool:
+    """Checks if the given interface exists in sysfs and is not a monitor interface."""
+    if not iface or not is_valid_managed_iface(iface):
+        return False
+    return os.path.exists(f"/sys/class/net/{iface}")
+
+
+def find_suitable_interface() -> str | None:
+    """Finds any active physical/wireless network interface on the system (excluding monitor interfaces)."""
+    if os.path.exists("/sys/class/net"):
+        try:
+            for item in os.listdir("/sys/class/net"):
+                if is_valid_managed_iface(item) and (item.startswith("wlan") or item.startswith("wlp")):
+                    return item
+            for item in os.listdir("/sys/class/net"):
+                if is_valid_managed_iface(item):
+                    return item
+        except Exception:
+            pass
+    return None
+
+
+def check_interface_warning(target_iface: str | None = None) -> str | None:
+    """
+    Checks if target_iface or default interface exists on system.
+    Returns warning message string if interface is missing/invalid, or None if OK.
+    """
+    ifaces = []
+    if os.path.exists("/sys/class/net"):
+        try:
+            for item in os.listdir("/sys/class/net"):
+                if is_valid_managed_iface(item):
+                    ifaces.append(item)
+        except Exception:
+            pass
+
+    iface_to_check = target_iface or "wlan0"
+
+    if iface_to_check not in ifaces:
+        wireless_ifaces = [i for i in ifaces if i.startswith("wlan") or i.startswith("wlp")]
+        if wireless_ifaces:
+            return f"Specified network interface '{iface_to_check}' was not found. Using detected interface '{wireless_ifaces[0]}' instead."
+        else:
+            return f"No suitable network interface (like '{iface_to_check}') was found on this system."
+
+    return None
 
 
 def auto_detect_network_params(target_iface: str | None = None) -> dict:
@@ -26,6 +82,8 @@ def auto_detect_network_params(target_iface: str | None = None) -> dict:
         "ssid": None,
         "internet_access": False
     }
+
+    target_requested = target_iface
 
     # 1. Default interface & Gateway IP
     rc, route_out = _run(["ip", "-o", "-4", "route", "show", "to", "default"])
@@ -51,7 +109,19 @@ def auto_detect_network_params(target_iface: str | None = None) -> dict:
                         break
 
     if not info["interface"]:
-        info["interface"] = "wlan0"
+        suitable = find_suitable_interface()
+        info["interface"] = suitable or "wlan0"
+
+    if target_requested and not validate_interface(target_requested):
+        log_warning(f"[!] Warning: Specified network interface '{target_requested}' not found on system.")
+        suitable = find_suitable_interface()
+        if suitable and suitable != target_requested:
+            info["interface"] = suitable
+            log_warning(f"[!] Warning: Using detected interface '{suitable}' instead.")
+        else:
+            log_warning(f"[!] Warning: No suitable network interface (like '{target_requested}') found on this system.")
+    elif not validate_interface(info["interface"]):
+        log_warning(f"[!] Warning: No suitable network interface (like '{info['interface']}') found on this system.")
 
     # 2. IP, netmask/CIDR, broadcast
     rc, addr_out = _run(["ip", "-o", "-4", "addr", "show", "dev", info["interface"]])

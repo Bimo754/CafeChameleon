@@ -7,7 +7,7 @@ import time
 
 from cafe_chameleon.utils.process import _run
 from cafe_chameleon.utils.tracing import trace
-from cafe_chameleon.ui.console import log_info, log_plus, log_warning, log_minus, log_step, log_wait
+from cafe_chameleon.ui.console import log_info, log_plus, log_warning, log_minus, log_step, log_wait, get_user_input
 from cafe_chameleon.ui.colors import BOLD, CYAN, GREEN, YELLOW, RESET
 from cafe_chameleon.network.mac import is_valid_mac
 
@@ -121,7 +121,7 @@ def select_bssid_interactively(target_ssid: str) -> str | None:
 
     while True:
         try:
-            choice = input(f"\nSelect BSSID (1-{len(bssids)}) [or 'q' to cancel]: ").strip()
+            choice = get_user_input(f"\nSelect BSSID (1-{len(bssids)}) [or 'q' to cancel]: ").strip()
             if choice.lower() == 'q':
                 log_info("Cancelled.")
                 sys.exit(0)

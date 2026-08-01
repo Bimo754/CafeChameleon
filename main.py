@@ -15,7 +15,8 @@ from cafe_chameleon.utils.state import set_debug, set_quiet, set_use_xterm, set_
 from cafe_chameleon.utils.tracing import trace, log_exception_to_trace, get_recent_trace, get_trace_filepath
 from cafe_chameleon.utils.signals import restore_and_exit
 from cafe_chameleon.ui.console import init_xterm
-from cafe_chameleon.ui.colors import BOLD, GREEN, RED, RESET
+from cafe_chameleon.scanners.detector import check_interface_warning
+from cafe_chameleon.ui.colors import BOLD, GREEN, RED, YELLOW, RESET, colorize_brackets
 
 
 def main():
@@ -30,6 +31,13 @@ def main():
 
         if getattr(args, "quiet", False):
             set_quiet(True)
+
+        # Check for interface warnings and print in launching terminal
+        iface_arg = getattr(args, "interface", None)
+        warn_msg = check_interface_warning(iface_arg)
+        if warn_msg:
+            print(colorize_brackets(f"{YELLOW}[!] {warn_msg}{RESET}"))
+
         if getattr(args, "no_xterm", False):
             set_use_xterm(False)
         else:
@@ -47,15 +55,15 @@ def main():
 
             if init_xterm(active_windows=active_windows):
                 count = len(active_windows)
-                print(f"[+] Multi-Window Xterm UI active ({count} centered window{'s' if count != 1 else ''} spawned).")
+                print(colorize_brackets(f"[+] Multi-Window Xterm UI active ({count} centered window{'s' if count != 1 else ''} spawned)."))
         cmd = getattr(args, "command", "")
         trace(f"[FEATURE] Running subcommand '{cmd}' (Original MAC: {getattr(args, 'original_mac', False)})")
         result = args.func(args)
         if cmd in ("aggressive", "simple"):
             if result:
-                print(f"\n{BOLD}{GREEN}[+] Operation Complete: Internet Access Granted!{RESET}\n")
+                print(colorize_brackets(f"\n{BOLD}{GREEN}[+] Operation Complete: Internet Access Granted!{RESET}\n"))
             else:
-                print(f"\n{BOLD}{RED}[-] Operation Complete: No Internet Access Secured.{RESET}\n")
+                print(colorize_brackets(f"\n{BOLD}{RED}[-] Operation Complete: No Internet Access Secured.{RESET}\n"))
 
     except KeyboardInterrupt:
         trace("[FEATURE] Process interrupted by user (Ctrl+C).")

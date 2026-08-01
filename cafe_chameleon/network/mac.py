@@ -75,14 +75,15 @@ def set_mac_address(interface: str, mac: str, profile: str | None = None) -> boo
         rc, _ = _run(["nmcli", "connection", "modify", profile, "802-11-wireless.cloned-mac-address", mac], debug=False)
         if rc == 0:
             log_wait(f"Reconnecting profile '{profile}' with MAC {mac}...")
+            _run(f"ip link set dev {interface} up", debug=False)
             rc_up, _ = _run(["nmcli", "connection", "up", profile], debug=False, timeout=15.0)
-            if rc_up == 0 or wait_for_carrier(interface, timeout=4.0):
+            if rc_up == 0 or wait_for_carrier(interface, timeout=6.0):
                 return True
             # Retry connection after wifi rescan without tearing down the interface
             log_wait("Rescanning Wi-Fi & retrying reconnect...")
             _run(["nmcli", "device", "wifi", "rescan"], debug=False)
             rc_up2, _ = _run(["nmcli", "connection", "up", profile], debug=False, timeout=15.0)
-            if rc_up2 == 0 or wait_for_carrier(interface, timeout=4.0):
+            if rc_up2 == 0 or wait_for_carrier(interface, timeout=6.0):
                 return True
 
     # Fallback method (only when NM profile is absent/unavailable): manual link down -> address change -> link up
@@ -91,7 +92,7 @@ def set_mac_address(interface: str, mac: str, profile: str | None = None) -> boo
     rc_ip, _ = _run(f"ip link set dev {interface} address {mac}", debug=False)
     rc_mc, _ = _run(f"macchanger -m {mac} {interface}", debug=False)
     _run(f"ip link set dev {interface} up", debug=False)
-    wait_for_carrier(interface, timeout=5.0)
+    wait_for_carrier(interface, timeout=6.0)
 
     if profile:
         _run(["nmcli", "device", "wifi", "rescan"], debug=False)
@@ -118,7 +119,7 @@ def reset_mac_address(interface: str, profile: str | None = None) -> bool:
         _run(["nmcli", "connection", "modify", profile, "802-11-wireless.cloned-mac-address", ""], debug=False)
         log_wait(f"Reconnecting profile '{profile}'...")
         rc_up, _ = _run(["nmcli", "connection", "up", profile], debug=False, timeout=15.0)
-        if rc_up == 0 or wait_for_carrier(interface, timeout=4.0):
+        if rc_up == 0 or wait_for_carrier(interface, timeout=6.0):
             return True
 
     # Fallback to manual link down -> macchanger -p -> link up
@@ -126,7 +127,7 @@ def reset_mac_address(interface: str, profile: str | None = None) -> bool:
     _run(f"ip link set dev {interface} down", debug=False)
     rc_mc, _ = _run(f"macchanger -p {interface}", debug=False)
     _run(f"ip link set dev {interface} up", debug=False)
-    wait_for_carrier(interface, timeout=5.0)
+    wait_for_carrier(interface, timeout=6.0)
 
     if profile:
         _run(["nmcli", "device", "wifi", "rescan"], debug=False)
