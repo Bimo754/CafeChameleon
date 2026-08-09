@@ -29,8 +29,14 @@ from cafe_chameleon.network.nmcli import (
     lock_bssid,
     restore_auto
 )
+from cafe_chameleon.config import DEFAULT_AIR_DURATION
 from cafe_chameleon.scanners.detector import auto_detect_network_params
-from cafe_chameleon.scanners.air import sniff_air_clients, is_monitor_mode_active, set_managed_mode
+from cafe_chameleon.scanners.air import (
+    sniff_air_clients,
+    is_monitor_mode_active,
+    set_managed_mode,
+    calculate_scaled_air_duration
+)
 
 from .selector import display_and_select_bssid
 from .air_target_handler import filter_valid_air_clients, test_air_client_targets
@@ -66,16 +72,19 @@ def run_aggressive(args) -> bool:
 
     air_arg = getattr(args, "air", None)
     is_air = air_arg is not None
-    air_duration = 25
+    air_duration = DEFAULT_AIR_DURATION
+    user_specified_duration = False
 
     if is_air:
         if isinstance(air_arg, int) and air_arg > 0:
             air_duration = air_arg
+            user_specified_duration = True
         elif sys.stdin.isatty():
             try:
-                val = get_user_input("Enter duration in seconds to listen in monitor mode [default: 25]: ").strip()
+                val = get_user_input(f"Enter duration in seconds to listen in monitor mode [default: {DEFAULT_AIR_DURATION}]: ").strip()
                 if val.isdigit() and int(val) > 0:
                     air_duration = int(val)
+                    user_specified_duration = True
             except (KeyboardInterrupt, EOFError):
                 pass
 
@@ -103,6 +112,23 @@ def run_aggressive(args) -> bool:
     if is_air:
         target_bssid_list = [b["bssid"] for b in bssids]
         target_channel_list = [b["chan"] for b in bssids if b.get("chan")]
+
+        unique_channels = set()
+        for ch in target_channel_list:
+            try:
+                ch_int = int(str(ch).strip())
+                if ch_int > 0:
+                    unique_channels.add(ch_int)
+            except (ValueError, TypeError):
+                pass
+
+        if not user_specified_duration and unique_channels:
+            scaled_dur = calculate_scaled_air_duration(air_duration, len(unique_channels))
+            if scaled_dur > air_duration:
+                log_main(f"[*] Auto-scaling air sniff duration to {scaled_dur}s for {len(unique_channels)} target channels.")
+                air_duration = scaled_dur
+                set_main_status(status=f"Air Sniffing ({air_duration}s)")
+
         threshold_val = getattr(args, "threshold", getattr(args, "bssid_threshold", 10))
         air_clients_map = sniff_air_clients(
             target_bssid_list,

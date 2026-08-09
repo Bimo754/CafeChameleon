@@ -46,10 +46,28 @@ def calculate_channel_signals(bssids: list | None) -> dict[int, int]:
     return channel_signals
 
 
+def calculate_channel_densities(bssids: list | None) -> dict[int, int]:
+    """
+    Computes count of target BSSIDs present on each channel.
+    Returns: {channel_number: bssid_count}
+    """
+    channel_densities: dict[int, int] = {}
+    if not bssids:
+        return channel_densities
+
+    for b in bssids:
+        chan_val = b.get("chan") if hasattr(b, "get") else getattr(b, "chan", None)
+        ch = parse_clean_int(chan_val)
+        if ch and ch > 0:
+            channel_densities[ch] = channel_densities.get(ch, 0) + 1
+
+    return channel_densities
+
+
 def should_weight_channels_by_signal(bssid_count: int, threshold: int = DEFAULT_BSSID_THRESHOLD) -> bool:
     """
-    Determines if signal-weighted channel hopping should be applied:
-    - If threshold is 0: force signal-weighted behavior regardless of BSSID count.
+    Determines if signal/density-weighted channel hopping should be applied:
+    - If threshold is 0: force weighted behavior regardless of BSSID count.
     - If threshold > 0: only apply when BSSID count > threshold.
     """
     if threshold == 0:
@@ -60,21 +78,47 @@ def should_weight_channels_by_signal(bssid_count: int, threshold: int = DEFAULT_
 def calculate_channel_dwell_times(
     channels: list[int],
     channel_signals: dict[int, int],
-    base_dwell: float = 0.25
+    base_dwell: float = 0.35,
+    channel_densities: dict[int, int] | None = None
 ) -> dict[int, float]:
     """
-    Calculates channel dwell times based on signal strength percentage.
-    Channels with stronger BSSID signals receive proportionally more time.
+    Calculates channel dwell times based on signal strength percentage and BSSID density.
+    Channels with stronger BSSID signals and higher target AP densities receive proportionally more time.
+    Maintains a robust floor of 0.30s so power-saving clients are not starved.
     """
     dwell_times: dict[int, float] = {}
+    densities = channel_densities or {}
+
     for ch in channels:
         sig = channel_signals.get(ch, 0)
-        # Scale dwell time proportional to signal strength (from 0.15s for 0% up to 0.75s for 100%)
-        factor = max(0.6, sig / 40.0)
+        density = densities.get(ch, 1)
+
+        # Base scaling factor from signal strength (0.8 for 0% up to 2.2 for 100%)
+        sig_factor = max(0.8, sig / 45.0)
+        # Bonus factor for channels with multiple target BSSIDs (up to +30%)
+        density_bonus = min(0.30, (density - 1) * 0.10) if density > 1 else 0.0
+
+        factor = sig_factor + density_bonus
         dwell = round(base_dwell * factor, 2)
-        dwell_times[ch] = max(0.15, dwell)
+        # Robust floor of 0.30s ensures listening window spans multiple DTIM/beacon intervals
+        dwell_times[ch] = max(0.30, dwell)
 
     return dwell_times
+
+
+def calculate_scaled_air_duration(
+    base_duration: int = DEFAULT_AIR_DURATION,
+    channel_count: int = 1,
+    min_seconds_per_channel: float = 4.0
+) -> int:
+    """
+    Auto-scales the air sniffing duration based on unique channel count to guarantee
+    sufficient dwell cycles per channel.
+    """
+    if channel_count <= 0:
+        return base_duration
+    scaled = int(round(channel_count * min_seconds_per_channel))
+    return max(base_duration, scaled)
 
 
 def sniff_air_clients(
@@ -83,7 +127,8 @@ def sniff_air_clients(
     duration: int = DEFAULT_AIR_DURATION,
     target_channels: list[int] | None = None,
     bssids: list | None = None,
-    bssid_threshold: int = DEFAULT_BSSID_THRESHOLD
+    bssid_threshold: int = DEFAULT_BSSID_THRESHOLD,
+    auto_scale_duration: bool = False
 ) -> dict:
     """
     Switches to monitor mode, sniffs 802.11 frames over-the-air for `duration` seconds,
@@ -91,6 +136,7 @@ def sniff_air_clients(
     Focuses channel hopping specifically on target_channels when supplied.
     When BSSID count exceeds bssid_threshold (or threshold is 0), allocates more time to channels
     with stronger BSSID signals.
+    When auto_scale_duration is True, scales duration based on unique channel count.
 
     Returns dict: { 'bssid_mac': { 'client_mac': 'client_ip' or None } }
     """
@@ -136,6 +182,7 @@ def sniff_air_clients(
                     pass
 
         channel_signals = calculate_channel_signals(bssids) if bssids else {}
+        channel_densities = calculate_channel_densities(bssids) if bssids else {}
         bssid_count = len(bssids) if bssids is not None else len(target_bssids)
         use_weighted = should_weight_channels_by_signal(bssid_count, threshold=bssid_threshold)
 
@@ -143,16 +190,28 @@ def sniff_air_clients(
         if valid_target_channels:
             hop_channels = valid_target_channels
             if use_weighted and channel_signals:
-                dwell_times = calculate_channel_dwell_times(hop_channels, channel_signals)
-                log_air(f"[*] Signal-weighted channel hopping enabled ({bssid_count} BSSIDs, threshold: {bssid_threshold})")
+                dwell_times = calculate_channel_dwell_times(hop_channels, channel_signals, channel_densities=channel_densities)
+                log_air(f"[*] Signal & density-weighted channel hopping enabled ({bssid_count} BSSIDs, threshold: {bssid_threshold})")
         else:
             log_air("Using all channels")
             hop_channels = [1, 6, 11, 36, 40, 44, 48, 52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144, 149, 153, 157, 161, 165, 2, 3, 4, 5, 7, 8, 9, 10]
             if use_weighted and channel_signals:
-                dwell_times = calculate_channel_dwell_times(hop_channels, channel_signals)
-                log_air(f"[*] Signal-weighted channel hopping enabled ({bssid_count} BSSIDs, threshold: {bssid_threshold})")
+                dwell_times = calculate_channel_dwell_times(hop_channels, channel_signals, channel_densities=channel_densities)
+                log_air(f"[*] Signal & density-weighted channel hopping enabled ({bssid_count} BSSIDs, threshold: {bssid_threshold})")
 
-        log_air(f"[*] Sniffing frames on {mon_iface} ({duration}s)...")
+        effective_duration = duration
+        if auto_scale_duration and hop_channels:
+            scaled_dur = calculate_scaled_air_duration(base_duration=duration, channel_count=len(hop_channels))
+            if scaled_dur > effective_duration:
+                log_air(f"[*] Auto-scaled air sniffing duration to {scaled_dur}s ({len(hop_channels)} unique channels detected)")
+                effective_duration = scaled_dur
+
+        # Estimate cycle time across target channels
+        est_cycle_time = sum(dwell_times.get(ch, 0.35) for ch in hop_channels) if dwell_times else (len(hop_channels) * 0.25)
+        if est_cycle_time > 0 and effective_duration < (est_cycle_time * 2):
+            log_air(f"[i] Notice: Sniff duration ({effective_duration}s) allows ~{effective_duration / est_cycle_time:.1f} channel hopping cycles across {len(hop_channels)} channels.")
+
+        log_air(f"[*] Sniffing frames on {mon_iface} ({effective_duration}s)...")
 
         def air_packet_callback(pkt):
             parse_air_packet(pkt, target_bssids_set, ignore_macs, bssid_to_clients, BOOTP=BOOTP, DHCP=DHCP)
@@ -160,7 +219,7 @@ def sniff_air_clients(
         hopper = ChannelHopper(mon_iface, hop_channels, dwell_times=dwell_times)
         hopper.start()
 
-        sniff(iface=mon_iface, timeout=duration, prn=air_packet_callback, store=False)
+        sniff(iface=mon_iface, timeout=effective_duration, prn=air_packet_callback, store=False)
     except (AirSkipInterrupt, KeyboardInterrupt):
         log_air("\n\033[93m[-] Stopped air sniff (Ctrl+C). Processing captured targets...\033[0m")
     except Exception as e:

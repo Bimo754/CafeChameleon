@@ -20,8 +20,8 @@ def is_valid_mac(val: str) -> bool:
 
 
 def generate_random_mac() -> str:
-    """Generates a random unicast, locally-administered MAC address."""
-    first_byte = random.choice([0x02, 0x06, 0x0A, 0x0E, 0x12, 0x16, 0x1A, 0x1E])
+    """Generates a random unicast, locally-administered MAC address across all 64 valid prefixes."""
+    first_byte = (random.randint(0, 15) << 4) | random.choice([0x02, 0x06, 0x0A, 0x0E])
     rest = [random.randint(0, 255) for _ in range(5)]
     mac_bytes = [first_byte] + rest
     return ":".join(f"{b:02x}" for b in mac_bytes)

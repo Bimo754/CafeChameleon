@@ -6,11 +6,13 @@ from cafe_chameleon.cli.parser import parse_arguments
 from cafe_chameleon.models import BSSIDTarget
 from cafe_chameleon.scanners.air.sniffer import (
     calculate_channel_signals,
+    calculate_channel_densities,
     calculate_channel_dwell_times,
     should_weight_channels_by_signal,
     sniff_air_clients
 )
 from cafe_chameleon.scanners.air.hopper import ChannelHopper
+from cafe_chameleon.scanners.air.packet_parser import parse_air_packet
 from cafe_chameleon.utils.signals import AirSkipInterrupt
 
 
@@ -28,6 +30,18 @@ class TestSignalWeightedSniffing(unittest.TestCase):
         self.assertEqual(signals[1], 90)
         self.assertEqual(signals[6], 40)
         self.assertEqual(signals[11], 15)
+
+    def test_calculate_channel_densities_counts_bssids_per_channel(self):
+        bssids = [
+            {"bssid": "00:11:22:33:44:01", "chan": "1"},
+            {"bssid": "00:11:22:33:44:02", "chan": "1"},
+            {"bssid": "00:11:22:33:44:03", "chan": "1"},
+            {"bssid": "00:11:22:33:44:04", "chan": "6"},
+        ]
+        densities = calculate_channel_densities(bssids)
+        self.assertEqual(densities[1], 3)
+        self.assertEqual(densities[6], 1)
+        self.assertNotIn(11, densities)
 
     def test_calculate_channel_signals_handles_bssidtarget_dataclass(self):
         bssids = [
@@ -68,17 +82,29 @@ class TestSignalWeightedSniffing(unittest.TestCase):
         channels = [1, 6, 11]
         channel_signals = {1: 95, 6: 40, 11: 15}
 
-        dwell_times = calculate_channel_dwell_times(channels, channel_signals, base_dwell=0.25)
+        dwell_times = calculate_channel_dwell_times(channels, channel_signals, base_dwell=0.35)
 
         # Strong signal (ch 1: 95%) must have strictly more time than medium (ch 6: 40%) and weak (ch 11: 15%)
         self.assertGreater(dwell_times[1], dwell_times[6])
         self.assertGreater(dwell_times[6], dwell_times[11])
-        self.assertGreater(dwell_times[1], 0.5)
+        self.assertGreaterEqual(dwell_times[11], 0.30)
+        self.assertGreater(dwell_times[1], 0.60)
+
+    def test_calculate_channel_dwell_times_includes_density_bonus(self):
+        channels = [1, 6]
+        # Both have same signal, but channel 1 has 4 BSSIDs and channel 6 has 1
+        channel_signals = {1: 50, 6: 50}
+        channel_densities = {1: 4, 6: 1}
+
+        dwell_times = calculate_channel_dwell_times(
+            channels, channel_signals, base_dwell=0.35, channel_densities=channel_densities
+        )
+        self.assertGreater(dwell_times[1], dwell_times[6])
 
     def test_channel_hopper_uses_dwell_times(self):
-        hopper = ChannelHopper("wlan0", [1, 6], dwell_times={1: 0.5, 6: 0.2}, default_dwell=0.25)
+        hopper = ChannelHopper("wlan0", [1, 6], dwell_times={1: 0.5, 6: 0.3}, default_dwell=0.35)
         self.assertEqual(hopper.dwell_times[1], 0.5)
-        self.assertEqual(hopper.dwell_times[6], 0.2)
+        self.assertEqual(hopper.dwell_times[6], 0.3)
 
     @patch("cafe_chameleon.scanners.air.sniffer.set_managed_mode")
     @patch("cafe_chameleon.scanners.air.sniffer.set_monitor_mode")
@@ -215,6 +241,39 @@ class TestSignalWeightedSniffing(unittest.TestCase):
         args = parse_arguments()
         self.assertEqual(args.command, "aggressive")
         self.assertEqual(args.threshold, 10)
+
+    def test_parse_air_packet_extracts_client_from_control_frames(self):
+        from scapy.all import Dot11
+
+        target_bssid = "00:11:22:33:44:55"
+        client_mac = "aa:bb:cc:dd:ee:ff"
+        bssid_to_clients = {target_bssid: {}}
+        ignore_macs = {"ff:ff:ff:ff:ff:ff", "00:00:00:00:00:00"}
+
+        # 1. PS-Poll (type 1, subtype 10)
+        pkt_ps = Dot11(type=1, subtype=10, addr1=target_bssid, addr2=client_mac)
+        parse_air_packet(pkt_ps, {target_bssid}, ignore_macs, bssid_to_clients)
+        self.assertIn(client_mac, bssid_to_clients[target_bssid])
+
+        # 2. RTS (type 1, subtype 11)
+        client_mac_2 = "aa:bb:cc:11:22:33"
+        pkt_rts = Dot11(type=1, subtype=11, addr1=target_bssid, addr2=client_mac_2)
+        parse_air_packet(pkt_rts, {target_bssid}, ignore_macs, bssid_to_clients)
+        self.assertIn(client_mac_2, bssid_to_clients[target_bssid])
+
+    def test_calculate_scaled_air_duration_scales_with_channel_count(self):
+        from cafe_chameleon.scanners.air.sniffer import calculate_scaled_air_duration
+
+        # Single channel retains base duration
+        self.assertEqual(calculate_scaled_air_duration(base_duration=45, channel_count=1), 45)
+        # 10 channels: 10 * 4 = 40 <= 45 -> 45
+        self.assertEqual(calculate_scaled_air_duration(base_duration=45, channel_count=10), 45)
+        # 15 channels: 15 * 4 = 60 > 45 -> 60
+        self.assertEqual(calculate_scaled_air_duration(base_duration=45, channel_count=15), 60)
+        # 20 channels: 20 * 4 = 80 > 45 -> 80
+        self.assertEqual(calculate_scaled_air_duration(base_duration=45, channel_count=20), 80)
+        # 0 or negative channels returns base
+        self.assertEqual(calculate_scaled_air_duration(base_duration=45, channel_count=0), 45)
 
 
 if __name__ == "__main__":

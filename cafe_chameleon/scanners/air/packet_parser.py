@@ -214,6 +214,20 @@ def parse_air_packet(pkt, target_bssids_set: set[str], ignore_macs: set[str], bs
                     elif addr3 and addr3 in target_bssids_set:
                         matched_bssid = addr3
                         client_candidate = bootp_mac or addr1
+            elif dot11.type == 1:
+                # Control frames: Type 1
+                # Subtype 10: PS-Poll (addr1=BSSID/RA, addr2=Client/TA)
+                # Subtype 11: RTS (addr1=BSSID/RA, addr2=Client/TA)
+                # Subtype 8: Block ACK Request (addr1=RA, addr2=TA)
+                # Subtype 9: Block ACK (addr1=RA)
+                if hasattr(dot11, "subtype"):
+                    if dot11.subtype in (8, 10, 11):
+                        if addr1 and addr1 in target_bssids_set:
+                            matched_bssid = addr1
+                            client_candidate = addr2
+                        elif addr2 and addr2 in target_bssids_set:
+                            matched_bssid = addr2
+                            client_candidate = addr1
             elif dot11.type == 2:
                 if addr1 and addr1 in target_bssids_set:
                     matched_bssid = addr1
