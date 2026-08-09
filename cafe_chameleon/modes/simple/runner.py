@@ -20,6 +20,7 @@ from cafe_chameleon.network.mac import get_attack_mac, set_mac_address
 from cafe_chameleon.scanners.detector import auto_detect_network_params, get_interface_details
 from cafe_chameleon.scanners.arp_scanner import scan_subnet
 from cafe_chameleon.scanners.orchestrator import deep_scan_subnet
+from cafe_chameleon.scanners.air import is_monitor_mode_active, set_managed_mode
 
 from .subnet_helper import prepare_target_subnet, split_subnets_into_blocks
 from .takeover import test_discovered_hosts
@@ -31,6 +32,11 @@ def run_simple(args, quiet_header: bool = False) -> bool:
 
     interface = getattr(args, "interface", None) or "wlan0"
     trace(f"[FEATURE] Initializing Simple mode execution on interface {interface}")
+
+    if is_monitor_mode_active(interface):
+        trace(f"[FEATURE] Interface {interface} is in monitor mode; restoring to managed mode for subnet scan")
+        set_managed_mode(interface)
+
     wait_for_carrier(interface, timeout=5.0)
     auto_params = auto_detect_network_params(target_iface=interface)
     local_ip, local_mac = get_interface_details(interface)
@@ -119,6 +125,8 @@ def run_simple(args, quiet_header: bool = False) -> bool:
                 continue
 
     except KeyboardInterrupt:
+        if is_monitor_mode_active(interface):
+            set_managed_mode(interface)
         if quiet_header:
             raise
         restore_and_exit("Ctrl+C received during scan.")
@@ -134,12 +142,12 @@ def run_simple(args, quiet_header: bool = False) -> bool:
     has_acc = has_internet()
     if getattr(args, "force", False):
         if ask_restore(default_restore=not has_acc):
-            restore(interface, local_mac, ipmask, broadcast, gw_ip)
+            restore(interface, local_mac, ipmask, broadcast, gw_ip, profile=profile)
         else:
             log_plus("Keeping current MAC and network configuration.")
     else:
         if not has_acc:
-            restore(interface, local_mac, ipmask, broadcast, gw_ip)
+            restore(interface, local_mac, ipmask, broadcast, gw_ip, profile=profile)
         else:
             log_plus("Internet verified. Preserving working MAC and network configuration.")
     return has_acc

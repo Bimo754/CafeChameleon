@@ -14,8 +14,10 @@ from cafe_chameleon.ui.console import (
     set_hijack_status
 )
 from cafe_chameleon.ui.prompts import ask_proceed, ask_restore
+from cafe_chameleon.network.nmcli import get_active_security
 from cafe_chameleon.network.internet import has_internet
 from cafe_chameleon.network.hijack import hijack, restore
+from cafe_chameleon.scanners.resolver import is_valid_ipv4
 
 
 def test_discovered_hosts(unique_hosts: list[dict], interface: str, gw_ip: str, gw_mac: str, netmask: str, broadcast: str, local_mac: str, ipmask: str, profile: str | None, args) -> bool:
@@ -23,13 +25,21 @@ def test_discovered_hosts(unique_hosts: list[dict], interface: str, gw_ip: str, 
     set_scan_status(scan_type="N/A")
     log_main("[*] Testing discovered hosts for internet access...")
 
+    force_deauth = getattr(args, "force_deauth", False)
+    active_sec = getattr(args, "security", None) or get_active_security(profile=profile, interface=interface)
+
     for host in unique_hosts:
         try:
+            if not is_valid_ipv4(host["ip"]):
+                continue
             is_gw = (gw_ip and host["ip"] == gw_ip) or (gw_mac and host["mac"].lower() == gw_mac.lower())
             if not is_gw:
                 log_hijack(f"[*] Impersonating host: IP {host['ip']} ({host['mac']})...")
                 set_hijack_status(ip=host['ip'], technique="Simple Impersonation Sweep", clear_section2=True)
-                hijack_success = hijack(interface, host['ip'], host['mac'], netmask, broadcast, gw_ip, profile=profile, bssid=None)
+                hijack_success = hijack(
+                    interface, host['ip'], host['mac'], netmask, broadcast, gw_ip,
+                    profile=profile, bssid=None, security=active_sec, force_deauth=force_deauth
+                )
                 if hijack_success:
                     log_scan("[+] SUCCESS! Internet access established!")
                     log_main(f"\033[92m[+] SUCCESS! Internet active via {host['ip']} ({host['mac']})!\033[0m")

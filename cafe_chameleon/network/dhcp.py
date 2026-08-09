@@ -30,6 +30,7 @@ def query_dhcp_lease_ip(interface: str, target_mac: str | None = None, timeout: 
     wait_for_carrier(interface, timeout=5.0)
 
     try:
+        from cafe_chameleon.scanners.resolver.kernel_cache import is_valid_ipv4
         # 1. Primary: Scapy Raw Socket DHCP DISCOVER with target MAC Client-ID & random XID
         try:
             from scapy.all import Ether, IP, UDP, BOOTP, DHCP, srp1, get_if_hwaddr
@@ -55,10 +56,10 @@ def query_dhcp_lease_ip(interface: str, target_mac: str | None = None, timeout: 
                 bootp = ans[BOOTP]
                 yiaddr = str(getattr(bootp, "yiaddr", "0.0.0.0"))
                 ciaddr = str(getattr(bootp, "ciaddr", "0.0.0.0"))
-                if yiaddr not in ("0.0.0.0", "255.255.255.255"):
+                if is_valid_ipv4(yiaddr):
                     log_hijack(f"\033[92m[+] DHCP offered IP: {yiaddr}\033[0m")
                     return yiaddr
-                if ciaddr not in ("0.0.0.0", "255.255.255.255"):
+                if is_valid_ipv4(ciaddr):
                     log_hijack(f"\033[92m[+] DHCP offered IP: {ciaddr}\033[0m")
                     return ciaddr
         except Exception:
@@ -102,7 +103,7 @@ def query_dhcp_lease_ip(interface: str, target_mac: str | None = None, timeout: 
                     m = re.search(r"inet\s+([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)", out)
                     if m:
                         ip = m.group(1)
-                        if ip not in ("0.0.0.0", "127.0.0.1"):
+                        if is_valid_ipv4(ip):
                             log_hijack(f"\033[92m[+] dhclient assigned IP: {ip}\033[0m")
                             return ip
         except Exception:

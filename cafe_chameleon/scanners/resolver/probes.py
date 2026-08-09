@@ -9,7 +9,7 @@ from cafe_chameleon.ui.console import log_hijack, set_hijack_status
 from .kernel_cache import is_valid_ipv4
 
 
-def probe_unicast_arp(mac_clean: str, candidate_ips: list[str], interface: str) -> str | None:
+def probe_unicast_arp(mac_clean: str, candidate_ips: list[str], interface: str, target_subnet: str | None = None) -> str | None:
     if not candidate_ips:
         return None
     try:
@@ -25,7 +25,7 @@ def probe_unicast_arp(mac_clean: str, candidate_ips: list[str], interface: str) 
         for sent, rcv in ans:
             if rcv.haslayer(ARP) and rcv[ARP].op == 2 and rcv[ARP].hwsrc.lower() == mac_clean:
                 res_ip = str(rcv[ARP].psrc)
-                if is_valid_ipv4(res_ip):
+                if is_valid_ipv4(res_ip, subnet_cidr=target_subnet):
                     set_hijack_status(ip=res_ip, technique="Unicast ARP Probe")
                     log_hijack(f"\033[92m[+] IP resolved via L2 Unicast ARP -> {res_ip}\033[0m")
                     return res_ip
@@ -34,7 +34,7 @@ def probe_unicast_arp(mac_clean: str, candidate_ips: list[str], interface: str) 
     return None
 
 
-def probe_tcp_syn(mac_clean: str, candidate_ips: list[str], interface: str) -> str | None:
+def probe_tcp_syn(mac_clean: str, candidate_ips: list[str], interface: str, target_subnet: str | None = None) -> str | None:
     if not candidate_ips:
         return None
     try:
@@ -51,7 +51,7 @@ def probe_tcp_syn(mac_clean: str, candidate_ips: list[str], interface: str) -> s
             if rcv.haslayer(Ether) and rcv[Ether].src.lower() == mac_clean:
                 if rcv.haslayer(IP) and rcv.haslayer(TCP) and rcv[TCP].flags in ("R", "RA", "SA", 0x14, 0x12):
                     res_ip = str(rcv[IP].src)
-                    if is_valid_ipv4(res_ip):
+                    if is_valid_ipv4(res_ip, subnet_cidr=target_subnet):
                         set_hijack_status(ip=res_ip, technique="L3 TCP SYN Probe")
                         log_hijack(f"\033[92m[+] IP resolved via L3 TCP SYN -> {res_ip}\033[0m")
                         return res_ip
@@ -65,7 +65,7 @@ def probe_tcp_syn(mac_clean: str, candidate_ips: list[str], interface: str) -> s
             if rcv.haslayer(Ether) and rcv[Ether].src.lower() == mac_clean:
                 if rcv.haslayer(IP) and rcv.haslayer(TCP) and rcv[TCP].flags in ("R", "RA", "SA", 0x14, 0x12):
                     res_ip = str(rcv[IP].src)
-                    if is_valid_ipv4(res_ip):
+                    if is_valid_ipv4(res_ip, subnet_cidr=target_subnet):
                         set_hijack_status(ip=res_ip, technique="L3 TCP SYN Probe")
                         log_hijack(f"\033[92m[+] IP resolved via L3 TCP SYN -> {res_ip}\033[0m")
                         return res_ip
@@ -74,7 +74,7 @@ def probe_tcp_syn(mac_clean: str, candidate_ips: list[str], interface: str) -> s
     return None
 
 
-def probe_dhcp_inform(mac_clean: str, interface: str) -> str | None:
+def probe_dhcp_inform(mac_clean: str, interface: str, target_subnet: str | None = None) -> str | None:
     try:
         set_hijack_status(ip=None, technique="DHCP Inform Query", clear_section2=True)
         log_hijack("[*] Broadcasting direct DHCP INFORM query packet...")
@@ -98,7 +98,7 @@ def probe_dhcp_inform(mac_clean: str, interface: str) -> str | None:
             if rcv.haslayer(BOOTP):
                 bootp = rcv[BOOTP]
                 for addr in (getattr(bootp, "yiaddr", None), getattr(bootp, "ciaddr", None)):
-                    if addr and is_valid_ipv4(str(addr)):
+                    if addr and is_valid_ipv4(str(addr), subnet_cidr=target_subnet):
                         res_ip = str(addr)
                         set_hijack_status(ip=res_ip, technique="DHCP Inform")
                         log_hijack(f"\033[92m[+] IP resolved via DHCP Inform -> {res_ip}\033[0m")

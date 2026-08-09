@@ -51,6 +51,11 @@ def auto_detect_network_params(target_iface: str | None = None) -> NetworkParams
                         params.interface = iface_name
                         break
 
+    if target_requested:
+        from cafe_chameleon.scanners.air import is_monitor_mode_active, set_managed_mode
+        if is_monitor_mode_active(target_requested):
+            set_managed_mode(target_requested)
+
     if not params.interface:
         suitable = find_suitable_interface()
         params.interface = suitable or "wlan0"
@@ -65,6 +70,11 @@ def auto_detect_network_params(target_iface: str | None = None) -> NetworkParams
             log_warning(f"[!] Warning: No suitable network interface (like '{target_requested}') found on this system.")
     elif not validate_interface(params.interface):
         log_warning(f"[!] Warning: No suitable network interface (like '{params.interface}') found on this system.")
+
+    if params.interface:
+        from cafe_chameleon.scanners.air import is_monitor_mode_active, set_managed_mode
+        if is_monitor_mode_active(params.interface):
+            set_managed_mode(params.interface)
 
     # 2. IP, netmask/CIDR, broadcast
     rc, addr_out = _run(["ip", "-o", "-4", "addr", "show", "dev", params.interface])
@@ -109,9 +119,10 @@ def get_interface_details(interface: str) -> tuple[str, str]:
     """Retrieves local IP and MAC address safely."""
     try:
         from scapy.all import get_if_addr, get_if_hwaddr
+        from cafe_chameleon.scanners.resolver.kernel_cache import is_valid_ipv4
         local_ip = get_if_addr(interface)
         local_mac = get_if_hwaddr(interface)
-        if local_ip and local_mac and local_ip != "0.0.0.0":
+        if local_ip and local_mac and is_valid_ipv4(local_ip):
             return local_ip, local_mac
     except Exception:
         pass

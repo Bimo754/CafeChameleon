@@ -22,7 +22,7 @@ from cafe_chameleon.network.hijack import hijack, restore
 from cafe_chameleon.network.dhcp import query_dhcp_lease_ip
 from cafe_chameleon.network.mac import set_mac_address
 from cafe_chameleon.network.nmcli import lock_bssid
-from cafe_chameleon.scanners.resolver import resolve_mac_to_ip
+from cafe_chameleon.scanners.resolver import resolve_mac_to_ip, is_valid_ipv4
 
 
 def filter_valid_air_clients(bssid_air_clients: dict, tried_macs: set, auto_params: dict, bssids: list) -> dict:
@@ -54,7 +54,17 @@ def filter_valid_air_clients(bssid_air_clients: dict, tried_macs: set, auto_para
     }
 
 
-def test_air_client_targets(new_air_clients: dict, interface: str, target_bssid: str, chan: int, profile: str, tried_macs: set, auto_params: dict, args) -> tuple[bool, bool]:
+def test_air_client_targets(
+    new_air_clients: dict,
+    interface: str,
+    target_bssid: str,
+    chan: int,
+    profile: str,
+    tried_macs: set,
+    auto_params: dict,
+    args,
+    security: str | None = None
+) -> tuple[bool, bool]:
     """
     Impersonates each captured air target MAC address and tests for internet access.
     Returns (success_flag, stop_early_flag).
@@ -74,19 +84,16 @@ def test_air_client_targets(new_air_clients: dict, interface: str, target_bssid:
 
     set_restore_params(interface, local_mac, ipmask, broadcast, gw_ip, callback=restore, profile=profile)
 
+    force_deauth = getattr(args, "force_deauth", False)
+
     for client_mac, client_ip in new_air_clients.items():
         try:
             tried_macs.add(client_mac.lower())
 
             _run(f"ip addr flush dev {interface} scope global", debug=False)
             valid_air_ip = None
-            if client_ip:
-                try:
-                    ip_obj = ipaddress.ip_address(str(client_ip))
-                    if ip_obj.version == 4 and not (ip_obj.is_multicast or ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_unspecified or str(client_ip) == "255.255.255.255"):
-                        valid_air_ip = str(client_ip)
-                except Exception:
-                    valid_air_ip = None
+            if client_ip and is_valid_ipv4(client_ip, subnet_cidr=auto_params.get("cidr")):
+                valid_air_ip = str(client_ip)
 
             resolved_ip = valid_air_ip or resolve_mac_to_ip(client_mac, interface, target_subnet=auto_params.get("cidr"))
             
@@ -109,7 +116,11 @@ def test_air_client_targets(new_air_clients: dict, interface: str, target_bssid:
                 lock_bssid(target_bssid, profile)
                 wait_for_carrier(interface, timeout=6.0)
 
-            hijack_success = hijack(interface, target_ip, client_mac, netmask, broadcast, gw_ip, max_retries=2, profile=profile, bssid=target_bssid, channel=chan)
+            hijack_success = hijack(
+                interface, target_ip, client_mac, netmask, broadcast, gw_ip,
+                max_retries=2, profile=profile, bssid=target_bssid, channel=chan,
+                security=security, force_deauth=force_deauth
+            )
             if hijack_success:
                 log_main(f"\033[92m[+] SUCCESS! Internet active via {client_mac} [{target_bssid}]\033[0m")
                 if not getattr(args, "force", False):

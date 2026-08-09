@@ -16,6 +16,11 @@ def restore(interface: str, macaddress: str, ipmask: str, broadcast: str, gatewa
     trace(f"[FEATURE] Restoring network configuration on interface {interface} to MAC {macaddress}, IP {ipmask}, GW {gateway}")
     log_step(f"Restoring HW MAC & network settings on {interface}...")
 
+    from cafe_chameleon.scanners.air import is_monitor_mode_active, set_managed_mode
+    if is_monitor_mode_active(interface):
+        log_wait(f"Restoring {interface} from monitor mode to managed mode...")
+        set_managed_mode(interface)
+
     active_profile = profile or get_active_profile()
     if active_profile:
         _run(["nmcli", "connection", "modify", active_profile, "802-11-wireless.bssid", ""], debug=False)

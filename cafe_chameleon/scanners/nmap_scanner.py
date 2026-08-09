@@ -7,6 +7,7 @@ import re
 import shutil
 
 from cafe_chameleon.utils.process import _run
+from cafe_chameleon.scanners.resolver.kernel_cache import is_valid_ipv4
 
 
 def nmap_scan_subnet(
@@ -21,10 +22,12 @@ def nmap_scan_subnet(
     targeting subnet blocks to discover all active endpoints (IP + MAC).
     """
     discovered = {}  # ip -> mac
+    target_net_str = str(parent_net or subnet_cidr)
 
     # Pre-seed known gateway if provided
     if gateway_ip and gateway_mac and gateway_mac != "00:00:00:00:00:00":
-        discovered[gateway_ip] = gateway_mac.lower()
+        if is_valid_ipv4(gateway_ip, subnet_cidr=target_net_str):
+            discovered[gateway_ip] = gateway_mac.lower()
 
     if shutil.which("nmap"):
         # Nmap Ping Scan (-sn): ICMP Echo (-PE), ICMP Timestamp (-PP), TCP SYN (-PS), UDP (-PU), ARP (-PR)
@@ -58,10 +61,10 @@ def nmap_scan_subnet(
                     mac_m = re.search(r"MAC Address:\s+([0-9a-fa-f:]+)", line, re.IGNORECASE)
                     if mac_m:
                         mac = mac_m.group(1).lower()
-                        discovered[current_ip] = mac
+                        if is_valid_ipv4(current_ip, subnet_cidr=target_net_str):
+                            discovered[current_ip] = mac
 
     # Harvest from kernel neighbor cache in case Nmap triggered ARP/IP resolution
-    valid_net = ipaddress.ip_network(str(parent_net), strict=False) if parent_net else ipaddress.ip_network(str(subnet_cidr), strict=False)
     try:
         rc, neigh_out = _run(["ip", "-4", "neighbor", "show", "dev", interface], debug=False)
         if neigh_out:
@@ -70,12 +73,9 @@ def nmap_scan_subnet(
                 if m:
                     ip_str, mac_str = m.group(1), m.group(2).lower()
                     if mac_str != "00:00:00:00:00:00":
-                        try:
-                            if ipaddress.ip_address(ip_str) in valid_net:
-                                if ip_str not in discovered:
-                                    discovered[ip_str] = mac_str
-                        except ValueError:
-                            pass
+                        if is_valid_ipv4(ip_str, subnet_cidr=target_net_str):
+                            if ip_str not in discovered:
+                                discovered[ip_str] = mac_str
     except Exception:
         pass
 

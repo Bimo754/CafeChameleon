@@ -1,5 +1,5 @@
 """
-cafe_chameleon.modes.simple - Simple Mode Layer 2 ARP discovery & takeover engine package.
+cafe_chameleon.modes.simple - Simple Mode subnet blocks ping scanning & session takeover engine package.
 """
 
 from .runner import run_simple

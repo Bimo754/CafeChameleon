@@ -60,7 +60,17 @@ class BSSIDTarget:
     ssid: str = ""
     signal: str = "0"
     chan: str = "1"
+    security: str = ""
     active: bool = False
+
+    @property
+    def is_open(self) -> bool:
+        sec = self.security.strip().lower() if self.security else ""
+        return sec in ("", "--", "none", "(none)", "open")
+
+    @property
+    def is_encrypted(self) -> bool:
+        return not self.is_open
 
     def get(self, key: str, default=None):
         return getattr(self, key, default)
@@ -86,6 +96,7 @@ class BSSIDTarget:
             "ssid": self.ssid,
             "signal": self.signal,
             "chan": self.chan,
+            "security": self.security,
             "active": self.active
         }
 

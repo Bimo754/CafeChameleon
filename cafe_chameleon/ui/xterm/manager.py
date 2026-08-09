@@ -171,9 +171,8 @@ class XtermManager:
     def set_hijack_status(self, ip: str | None = None, technique: str | None = None, clear_section2: bool = False) -> None:
         if ip is not None:
             try:
-                import ipaddress
-                ip_obj = ipaddress.ip_address(str(ip))
-                if ip_obj.version == 4 and not (ip_obj.is_multicast or ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_unspecified or str(ip) == "255.255.255.255"):
+                from cafe_chameleon.scanners.resolver.kernel_cache import is_valid_ipv4
+                if is_valid_ipv4(str(ip)):
                     self.hijack_ip = str(ip)
             except Exception:
                 pass

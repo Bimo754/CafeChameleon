@@ -17,12 +17,12 @@ CONNECTED_MAC_REGEX = re.compile(r"Connected to\s+([0-9a-fa-f:]+)", re.IGNORECAS
 
 
 def scan_bssids_for_ssid(target_ssid: str) -> list[BSSIDTarget]:
-    """Scans for available BSSIDs matching the target SSID."""
+    """Scans for available BSSIDs matching the target SSID and retrieves their network security."""
     trace(f"[FEATURE] Rescanning Wi-Fi and scanning BSSIDs for target SSID '{target_ssid}'")
     log_step(f"Scanning BSSIDs for '{target_ssid}'...")
     log_wait("Triggering Wi-Fi rescan...")
     _run(["nmcli", "device", "wifi", "rescan"])
-    rc, out = _run(["nmcli", "-t", "-f", "BSSID,SSID,SIGNAL,CHAN,ACTIVE", "dev", "wifi", "list"])
+    rc, out = _run(["nmcli", "-t", "-f", "BSSID,SSID,SIGNAL,CHAN,SECURITY,ACTIVE", "dev", "wifi", "list"])
     results = []
     seen = set()
     for line in out.splitlines():
@@ -30,11 +30,29 @@ def scan_bssids_for_ssid(target_ssid: str) -> list[BSSIDTarget]:
             continue
         unescaped = line.replace(r"\:", "\x00")
         parts = unescaped.split(":")
-        if len(parts) >= 5:
+        if len(parts) >= 6:
             bssid = parts[0].replace("\x00", ":").strip()
             ssid = parts[1].replace("\x00", ":").strip()
             signal = parts[2].replace("\x00", ":").strip()
             chan = parts[3].replace("\x00", ":").strip()
+            security = parts[4].replace("\x00", ":").strip()
+            active = parts[5].replace("\x00", ":").strip().lower() == "yes"
+            if ssid.lower() == target_ssid.lower() and bssid not in seen:
+                seen.add(bssid)
+                results.append(BSSIDTarget(
+                    bssid=bssid,
+                    ssid=ssid,
+                    signal=signal,
+                    chan=chan,
+                    security=security,
+                    active=active
+                ))
+        elif len(parts) == 5:
+            bssid = parts[0].replace("\x00", ":").strip()
+            ssid = parts[1].replace("\x00", ":").strip()
+            signal = parts[2].replace("\x00", ":").strip()
+            chan = parts[3].replace("\x00", ":").strip()
+            security = ""
             active = parts[4].replace("\x00", ":").strip().lower() == "yes"
             if ssid.lower() == target_ssid.lower() and bssid not in seen:
                 seen.add(bssid)
@@ -43,6 +61,7 @@ def scan_bssids_for_ssid(target_ssid: str) -> list[BSSIDTarget]:
                     ssid=ssid,
                     signal=signal,
                     chan=chan,
+                    security=security,
                     active=active
                 ))
 
@@ -52,6 +71,27 @@ def scan_bssids_for_ssid(target_ssid: str) -> list[BSSIDTarget]:
 
     results.sort(key=parse_sig, reverse=True)
     return results
+
+
+def get_bssid_security(target_bssid: str) -> str | None:
+    """Queries nmcli dev wifi to get the security of a specific BSSID, or None if not found."""
+    if not target_bssid or target_bssid.lower() in ("ff:ff:ff:ff:ff:ff", "00:00:00:00:00:00"):
+        return None
+    try:
+        rc, out = _run(["nmcli", "-t", "-f", "BSSID,SECURITY", "dev", "wifi", "list"], debug=False)
+        for line in out.splitlines():
+            if not line:
+                continue
+            unescaped = line.replace(r"\:", "\x00")
+            parts = unescaped.split(":")
+            if len(parts) >= 2:
+                b_mac = parts[0].replace("\x00", ":").strip()
+                sec = parts[1].replace("\x00", ":").strip()
+                if b_mac.lower() == target_bssid.lower():
+                    return sec
+    except Exception:
+        pass
+    return None
 
 
 def get_connected_bssid(interface: str = "wlan0") -> str:

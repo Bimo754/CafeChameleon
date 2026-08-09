@@ -1,6 +1,7 @@
 from cafe_chameleon.scanners.passive_scanner import passive_sniff_subnet
 from cafe_chameleon.scanners.arp_scanner import scan_subnet
 from cafe_chameleon.scanners.nmap_scanner import nmap_scan_subnet
+from cafe_chameleon.scanners.resolver.kernel_cache import is_valid_ipv4
 from cafe_chameleon.ui.console import set_scan_status, log_scan
 
 
@@ -45,6 +46,8 @@ def deep_scan_subnet(subnet_cidr, interface: str, gateway_ip: str | None = None,
     local_mac_clean = (local_mac or "").strip().lower()
 
     for ip, mac in hosts_map.items():
+        if not is_valid_ipv4(ip, subnet_cidr=str(subnet_cidr)):
+            continue
         mac_lower = mac.lower()
         if gw_ip_clean and ip == gw_ip_clean:
             continue

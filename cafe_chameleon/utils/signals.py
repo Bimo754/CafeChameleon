@@ -1,52 +1,53 @@
 """
-cafe_chameleon.utils.signals - Signal handling (SIGINT) and restore & exit mechanisms.
+cafe_chameleon.utils.signals - Central process signal trapping, interrupt handling, and clean teardown.
 """
 
 import os
-import signal
 import sys
-
-from .state import get_restore_params, get_restore_callback
-
-
-EVENT_FILE = "/tmp/captive_xterm_fifos/last_ctrl_c.event"
-
-
-class WindowCtrlCInterrupt(KeyboardInterrupt):
-    """Base exception for window-specific Ctrl+C triggers."""
-    def __init__(self, window_name: str):
-        self.window_name = window_name
-        super().__init__(f"Ctrl+C in window '{window_name}'")
+import signal
+from cafe_chameleon.config import EVENT_FILE
+from cafe_chameleon.utils.state import get_restore_callback, get_restore_params
+from cafe_chameleon.ui.xterm import XtermManager
 
 
-class MainSkipInterrupt(WindowCtrlCInterrupt):
-    """Triggered by Ctrl+C in Main window -> skip BSSID."""
-    def __init__(self):
-        super().__init__("main")
+class WindowCtrlCInterrupt(Exception):
+    """Base exception indicating an in-window user interrupt signal was received."""
+    pass
 
 
 class AirSkipInterrupt(WindowCtrlCInterrupt):
-    """Triggered by Ctrl+C in Air window -> stop air sniffing and proceed."""
-    def __init__(self):
-        super().__init__("air")
+    """Raised when Ctrl+C is pressed inside the Air/Monitor window."""
+    pass
 
 
 class HijackSkipInterrupt(WindowCtrlCInterrupt):
-    """Triggered by Ctrl+C in Hijack window -> skip current target MAC."""
-    def __init__(self):
-        super().__init__("hijack")
+    """Raised when Ctrl+C is pressed inside the Hijack window."""
+    pass
 
 
 class ScanSkipInterrupt(WindowCtrlCInterrupt):
-    """Triggered by Ctrl+C in Scan window -> skip whole subnet block."""
-    def __init__(self):
-        super().__init__("scan")
+    """Raised when Ctrl+C is pressed inside the Scanner window."""
+    pass
+
+
+class MainSkipInterrupt(WindowCtrlCInterrupt):
+    """Raised when Ctrl+C is pressed inside the Main window."""
+    pass
+
+
+def reset_event():
+    """Removes lingering FIFO event files."""
+    if os.path.exists(EVENT_FILE):
+        try:
+            os.remove(EVENT_FILE)
+        except Exception:
+            pass
 
 
 def close_xterm():
-    """Deferred import to avoid circular dependencies."""
+    """Gracefully closes all spawned auxiliary xterm windows."""
+    reset_event()
     try:
-        from cafe_chameleon.ui.xterm import XtermManager
         if XtermManager and XtermManager._instance:
             XtermManager._instance.close()
     except Exception:
@@ -54,7 +55,14 @@ def close_xterm():
 
 
 def restore_and_exit(reason: str = "Terminated."):
-    """Restores network settings if set and exits process immediately."""
+    """Restores network settings if set and exits process cleanly, ignoring subsequent Ctrl+C signals."""
+    # Catch and ignore all further SIGINT/SIGTERM signals so user Ctrl+C cannot abort cleanup midway
+    try:
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    except Exception:
+        pass
+
     sys.stdout.write("\n")
     print(f"\033[91m[Warning] Process exiting: {reason}\033[0m")
     
@@ -82,6 +90,31 @@ def restore_and_exit(reason: str = "Terminated."):
                 )
             except Exception:
                 pass
+
+    # Ensure monitor mode is disabled and interface is restored to managed
+    try:
+        from cafe_chameleon.scanners.air import is_monitor_mode_active, set_managed_mode
+        iface = (params and params.get("interface")) or "wlan0"
+        if is_monitor_mode_active(iface):
+            set_managed_mode(iface)
+    except Exception:
+        pass
+
+    # Fallback cleanup for NetworkManager profile, hardware MAC, and lingering dhclient
+    try:
+        from cafe_chameleon.network.nmcli import get_active_profile
+        from cafe_chameleon.network.mac import reset_mac_address
+        from cafe_chameleon.utils.process import _run
+        
+        prof = (params and params.get("profile")) or get_active_profile()
+        iface = (params and params.get("interface")) or "wlan0"
+        if prof:
+            _run(["nmcli", "connection", "modify", prof, "802-11-wireless.bssid", ""], debug=False)
+            _run(["nmcli", "connection", "modify", prof, "802-11-wireless.cloned-mac-address", ""], debug=False)
+        reset_mac_address(iface, profile=prof)
+        _run(f"pkill -9 -f 'dhclient.*{iface}'", debug=False)
+    except Exception:
+        pass
 
     close_xterm()
     os._exit(0)
@@ -111,5 +144,3 @@ def sigint_handler(sig, frame):
 
 def register_signal_handler():
     signal.signal(signal.SIGINT, sigint_handler)
-
-

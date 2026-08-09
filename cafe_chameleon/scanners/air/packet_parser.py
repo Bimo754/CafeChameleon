@@ -3,12 +3,14 @@ cafe_chameleon.scanners.air.packet_parser - Scapy 802.11 packet inspection and c
 """
 
 from cafe_chameleon.ui.console import log_air
+from cafe_chameleon.scanners.resolver.kernel_cache import is_valid_ipv4
 
 
 def parse_air_packet(pkt, target_bssids_set: set[str], ignore_macs: set[str], bssid_to_clients: dict, BOOTP=None, DHCP=None):
     """
     Parses a single Scapy 802.11 frame, extracts IP/MAC information,
-    and updates bssid_to_clients dict.
+    and updates bssid_to_clients dict. Correctly parses local client IPs
+    and ignores public internet IPs (e.g., Google, Facebook, Cloudflare).
     """
     try:
         from scapy.all import Dot11, IP, ARP
@@ -24,7 +26,7 @@ def parse_air_packet(pkt, target_bssids_set: set[str], ignore_macs: set[str], bs
         addr2 = str(dot11.addr2).lower() if dot11.addr2 else None
         addr3 = str(dot11.addr3).lower() if dot11.addr3 else None
 
-        src_ip = None
+        client_ip = None
         bootp_mac = None
 
         fc_raw = getattr(dot11, "FCfield", 0)
@@ -44,50 +46,107 @@ def parse_air_packet(pkt, target_bssids_set: set[str], ignore_macs: set[str], bs
                 ch_bytes = bootp.chaddr[:6]
                 bootp_mac = ":".join(f"{b:02x}" for b in ch_bytes).lower()
 
-            if hasattr(bootp, "ciaddr") and str(bootp.ciaddr) not in ("0.0.0.0", "255.255.255.255"):
-                src_ip = str(bootp.ciaddr)
-            elif hasattr(bootp, "yiaddr") and str(bootp.yiaddr) not in ("0.0.0.0", "255.255.255.255"):
-                src_ip = str(bootp.yiaddr)
+            if hasattr(bootp, "ciaddr") and is_valid_ipv4(str(bootp.ciaddr)):
+                client_ip = str(bootp.ciaddr)
+            elif hasattr(bootp, "yiaddr") and is_valid_ipv4(str(bootp.yiaddr)):
+                client_ip = str(bootp.yiaddr)
 
-            if not src_ip and DHCP and pkt.haslayer(DHCP):
+            if not client_ip and DHCP and pkt.haslayer(DHCP):
                 for opt in pkt[DHCP].options:
                     if isinstance(opt, tuple) and opt[0] == "requested_addr":
                         req_ip = str(opt[1])
-                        if req_ip not in ("0.0.0.0", "255.255.255.255"):
-                            src_ip = req_ip
+                        if is_valid_ipv4(req_ip):
+                            client_ip = req_ip
                             break
 
         # 2. Scapy IP / ARP layer extraction
-        if not src_ip and not is_protected:
+        if not client_ip and not is_protected:
             if pkt.haslayer(ARP):
-                src_ip = str(pkt[ARP].psrc)
+                psrc = str(pkt[ARP].psrc) if hasattr(pkt[ARP], "psrc") else None
+                pdst = str(pkt[ARP].pdst) if hasattr(pkt[ARP], "pdst") else None
+                if from_ds and is_valid_ipv4(pdst):
+                    client_ip = pdst
+                elif to_ds and is_valid_ipv4(psrc):
+                    client_ip = psrc
+                elif is_valid_ipv4(psrc):
+                    client_ip = psrc
+                elif is_valid_ipv4(pdst):
+                    client_ip = pdst
             elif pkt.haslayer(IP):
-                src_ip = str(pkt[IP].src)
+                src_cand = str(pkt[IP].src) if hasattr(pkt[IP], "src") else None
+                dst_cand = str(pkt[IP].dst) if hasattr(pkt[IP], "dst") else None
+                # When from_ds (AP -> Client), IP.dst is the local client IP and IP.src is remote server
+                # When to_ds (Client -> AP), IP.src is the local client IP and IP.dst is remote server
+                if from_ds:
+                    if is_valid_ipv4(dst_cand):
+                        client_ip = dst_cand
+                    elif is_valid_ipv4(src_cand):
+                        client_ip = src_cand
+                elif to_ds:
+                    if is_valid_ipv4(src_cand):
+                        client_ip = src_cand
+                    elif is_valid_ipv4(dst_cand):
+                        client_ip = dst_cand
+                else:
+                    if is_valid_ipv4(src_cand):
+                        client_ip = src_cand
+                    elif is_valid_ipv4(dst_cand):
+                        client_ip = dst_cand
 
         # 3. 802.11 Data Frame Payload unwrapping & LLC/SNAP parsing
-        if not src_ip and not is_protected and dot11.type == 2:
+        if not client_ip and not is_protected and dot11.type == 2:
             curr = dot11.payload
             while curr:
                 if hasattr(curr, "name"):
-                    if curr.name == "IP" and hasattr(curr, "src"):
-                        src_ip = str(curr.src)
-                        break
-                    elif curr.name == "ARP" and hasattr(curr, "psrc"):
-                        src_ip = str(curr.psrc)
-                        break
+                    if curr.name == "IP":
+                        src_raw = str(curr.src) if hasattr(curr, "src") else None
+                        dst_raw = str(curr.dst) if hasattr(curr, "dst") else None
+                        if from_ds:
+                            if is_valid_ipv4(dst_raw):
+                                client_ip = dst_raw
+                                break
+                            elif is_valid_ipv4(src_raw):
+                                client_ip = src_raw
+                                break
+                        else:
+                            if is_valid_ipv4(src_raw):
+                                client_ip = src_raw
+                                break
+                            elif is_valid_ipv4(dst_raw):
+                                client_ip = dst_raw
+                                break
+                    elif curr.name == "ARP":
+                        psrc_raw = str(curr.psrc) if hasattr(curr, "psrc") else None
+                        pdst_raw = str(curr.pdst) if hasattr(curr, "pdst") else None
+                        if from_ds:
+                            if is_valid_ipv4(pdst_raw):
+                                client_ip = pdst_raw
+                                break
+                            elif is_valid_ipv4(psrc_raw):
+                                client_ip = psrc_raw
+                                break
+                        else:
+                            if is_valid_ipv4(psrc_raw):
+                                client_ip = psrc_raw
+                                break
+                            elif is_valid_ipv4(pdst_raw):
+                                client_ip = pdst_raw
+                                break
                     elif curr.name == "BOOTP":
-                        if hasattr(curr, "ciaddr") and str(curr.ciaddr) not in ("0.0.0.0", "255.255.255.255"):
-                            src_ip = str(curr.ciaddr)
+                        ciaddr = str(curr.ciaddr) if hasattr(curr, "ciaddr") else None
+                        yiaddr = str(curr.yiaddr) if hasattr(curr, "yiaddr") else None
+                        if is_valid_ipv4(ciaddr):
+                            client_ip = ciaddr
                             break
-                        elif hasattr(curr, "yiaddr") and str(curr.yiaddr) not in ("0.0.0.0", "255.255.255.255"):
-                            src_ip = str(curr.yiaddr)
+                        elif is_valid_ipv4(yiaddr):
+                            client_ip = yiaddr
                             break
                 if hasattr(curr, "payload") and curr.payload != curr:
                     curr = curr.payload
                 else:
                     break
 
-            if not src_ip:
+            if not client_ip:
                 try:
                     payload = bytes(dot11.payload)
                     snap_idx = payload.find(b"\xaa\xaa\x03\x00\x00\x00")
@@ -97,24 +156,36 @@ def parse_air_packet(pkt, target_bssids_set: set[str], ignore_macs: set[str], bs
                         import socket
                         if ethertype == b"\x08\x00" and len(data) >= 20:
                             if (data[0] & 0xf0) == 0x40:
-                                ip_raw = socket.inet_ntoa(data[12:16])
-                                if ip_raw not in ("0.0.0.0", "255.255.255.255"):
-                                    src_ip = ip_raw
+                                ip_src = socket.inet_ntoa(data[12:16])
+                                ip_dst = socket.inet_ntoa(data[16:20])
+                                if from_ds:
+                                    if is_valid_ipv4(ip_dst):
+                                        client_ip = ip_dst
+                                    elif is_valid_ipv4(ip_src):
+                                        client_ip = ip_src
+                                else:
+                                    if is_valid_ipv4(ip_src):
+                                        client_ip = ip_src
+                                    elif is_valid_ipv4(ip_dst):
+                                        client_ip = ip_dst
                         elif ethertype == b"\x08\x06" and len(data) >= 28:
-                            ip_raw = socket.inet_ntoa(data[14:18])
-                            if ip_raw not in ("0.0.0.0", "255.255.255.255"):
-                                src_ip = ip_raw
+                            arp_src = socket.inet_ntoa(data[14:18])
+                            arp_dst = socket.inet_ntoa(data[24:28])
+                            if from_ds:
+                                if is_valid_ipv4(arp_dst):
+                                    client_ip = arp_dst
+                                elif is_valid_ipv4(arp_src):
+                                    client_ip = arp_src
+                            else:
+                                if is_valid_ipv4(arp_src):
+                                    client_ip = arp_src
+                                elif is_valid_ipv4(arp_dst):
+                                    client_ip = arp_dst
                 except Exception:
                     pass
 
-        if src_ip:
-            try:
-                import ipaddress
-                ip_obj = ipaddress.ip_address(str(src_ip))
-                if ip_obj.version != 4 or ip_obj.is_multicast or ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_unspecified or str(src_ip) == "255.255.255.255":
-                    src_ip = None
-            except Exception:
-                src_ip = None
+        if client_ip and not is_valid_ipv4(client_ip):
+            client_ip = None
 
         matched_bssid = None
         client_candidate = None
@@ -143,6 +214,16 @@ def parse_air_packet(pkt, target_bssids_set: set[str], ignore_macs: set[str], bs
                     elif addr3 and addr3 in target_bssids_set:
                         matched_bssid = addr3
                         client_candidate = bootp_mac or addr1
+            elif dot11.type == 2:
+                if addr1 and addr1 in target_bssids_set:
+                    matched_bssid = addr1
+                    client_candidate = bootp_mac or addr2
+                elif addr2 and addr2 in target_bssids_set:
+                    matched_bssid = addr2
+                    client_candidate = bootp_mac or addr1
+                elif addr3 and addr3 in target_bssids_set:
+                    matched_bssid = addr3
+                    client_candidate = bootp_mac or addr2
 
         if matched_bssid and client_candidate:
             client_candidate = client_candidate.lower()
@@ -168,9 +249,9 @@ def parse_air_packet(pkt, target_bssids_set: set[str], ignore_macs: set[str], bs
 
                 if not is_invalid:
                     existing_ip = bssid_to_clients[matched_bssid].get(client_candidate)
-                    if client_candidate not in bssid_to_clients[matched_bssid] or (not existing_ip and src_ip):
-                        bssid_to_clients[matched_bssid][client_candidate] = src_ip
-                        ip_str = f" ({src_ip})" if src_ip else ""
+                    if client_candidate not in bssid_to_clients[matched_bssid] or (not existing_ip and client_ip):
+                        bssid_to_clients[matched_bssid][client_candidate] = client_ip
+                        ip_str = f" ({client_ip})" if client_ip else ""
                         log_air(f"  [+] Target Client: {client_candidate}{ip_str} on BSSID {matched_bssid}")
     except Exception:
         pass

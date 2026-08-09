@@ -16,6 +16,13 @@ def restore_auto(profile: str | None = None) -> None:
         log_minus("Error: No active Wi-Fi profile detected.")
         sys.exit(1)
 
+    from cafe_chameleon.scanners.detector import auto_detect_network_params
+    from cafe_chameleon.scanners.air import is_monitor_mode_active, set_managed_mode
+    params = auto_detect_network_params()
+    iface = params.get("interface") or "wlan0"
+    if is_monitor_mode_active(iface):
+        set_managed_mode(iface)
+
     trace(f"[FEATURE] Restoring profile '{profile}' to auto-roam and default permanent MAC")
     log_step(f"Resetting BSSID lock & MAC on profile '{profile}'...")
     _run(["nmcli", "connection", "modify", profile, "802-11-wireless.bssid", ""])

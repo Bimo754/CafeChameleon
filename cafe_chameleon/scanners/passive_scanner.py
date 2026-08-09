@@ -2,15 +2,15 @@
 cafe_chameleon.scanners.passive_scanner - Passive broadcast/multicast traffic sniffer.
 """
 
-import ipaddress
-
 from cafe_chameleon.ui.console import log_scan
+from cafe_chameleon.scanners.resolver.kernel_cache import is_valid_ipv4
 
 
 def passive_sniff_subnet(subnet_cidr, interface: str, duration: int = 30) -> list[dict]:
     """
     Passively sniffs traffic on the interface for `duration` seconds.
     Extracts source IP and MAC addresses from background broadcast/multicast/ARP/IP traffic.
+    Ignores public internet IPs and invalid endpoints.
     """
     try:
         from scapy.all import sniff, IP, ARP, Ether
@@ -29,31 +29,30 @@ def passive_sniff_subnet(subnet_cidr, interface: str, duration: int = 30) -> lis
     def packet_callback(pkt):
         src_ip = None
         src_mac = None
+        dst_ip = None
+        dst_mac = None
 
         if pkt.haslayer(ARP):
             arp_layer = pkt[ARP]
-            src_ip = arp_layer.psrc
-            src_mac = arp_layer.hwsrc
+            src_ip = str(arp_layer.psrc) if arp_layer.psrc else None
+            src_mac = str(arp_layer.hwsrc).lower() if arp_layer.hwsrc else None
+            dst_ip = str(arp_layer.pdst) if arp_layer.pdst else None
+            dst_mac = str(arp_layer.hwdst).lower() if arp_layer.hwdst else None
         elif pkt.haslayer(IP):
             ip_layer = pkt[IP]
-            src_ip = ip_layer.src
+            src_ip = str(ip_layer.src) if ip_layer.src else None
+            dst_ip = str(ip_layer.dst) if ip_layer.dst else None
             if pkt.haslayer(Ether):
-                src_mac = pkt[Ether].src
+                src_mac = str(pkt[Ether].src).lower() if pkt[Ether].src else None
+                dst_mac = str(pkt[Ether].dst).lower() if pkt[Ether].dst else None
 
-        if src_ip and src_mac:
-            src_mac = src_mac.lower()
-            if src_ip in ("0.0.0.0", "255.255.255.255") or src_mac in ("00:00:00:00:00:00", "ff:ff:ff:ff:ff:ff"):
-                return
-            if src_mac.startswith("01:00:5e") or src_mac.startswith("33:33"):
-                return
-
-            try:
-                ip_obj = ipaddress.ip_address(src_ip)
-                if ip_obj in target_net and not ip_obj.is_multicast and not ip_obj.is_loopback:
-                    if src_ip not in discovered:
-                        discovered[src_ip] = src_mac
-            except ValueError:
-                pass
+        for ip_cand, mac_cand in ((src_ip, src_mac), (dst_ip, dst_mac)):
+            if ip_cand and mac_cand:
+                if mac_cand in ("00:00:00:00:00:00", "ff:ff:ff:ff:ff:ff") or mac_cand.startswith("01:00:5e") or mac_cand.startswith("33:33") or mac_cand.startswith("00:00:5e"):
+                    continue
+                if is_valid_ipv4(ip_cand, subnet_cidr=str(target_net)):
+                    if ip_cand not in discovered:
+                        discovered[ip_cand] = mac_cand
 
     try:
         sniff(iface=interface, timeout=duration, prn=packet_callback, store=False)

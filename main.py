@@ -3,9 +3,9 @@
 main.py - Entrypoint for CafeChameleon network toolkit.
 
 Subcommands:
-  simple     - Layer 2 ARP host enumeration & captive portal connection
-  aggressive - Sequential multi-BSSID exploration & over-the-air client discovery
-  wifi       - Manage WiFi BSSID lock / auto-roam / status via nmcli
+  simple     - Hijack sessions using subnet blocks ping scanning
+  aggressive - Hijack sessions of Multi-BSSID networks using AP roaming & air target discovery
+  wifi       - Hijack session connectivity & hardware properties management
 """
 
 from cafe_chameleon.cli.parser import parse_arguments
@@ -54,6 +54,7 @@ def main():
             if init_xterm(active_windows=active_windows):
                 count = len(active_windows)
                 print(colorize_brackets(f"[+] Multi-Window Xterm UI active ({count} centered window{'s' if count != 1 else ''} spawned)."))
+
         cmd = getattr(args, "command", "")
         trace(f"[FEATURE] Running subcommand '{cmd}' (Original MAC: {getattr(args, 'original_mac', False)})")
         result = args.func(args)

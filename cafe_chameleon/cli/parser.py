@@ -115,6 +115,7 @@ def parse_arguments():
     s_opts.add_argument("-i", "--interface", required=False, metavar="IFACE", help="Network interface [default: auto]")
     s_opts.add_argument("-m", "--original-mac", action="store_true", dest="original_mac", help="Use hardware MAC (do not randomize)")
     s_opts.add_argument("--force", action="store_true", help="Force scan even if internet is active")
+    s_opts.add_argument("--force-deauth", action="store_true", dest="force_deauth", help="Force 802.11 deauth even on open networks")
     s_opts.add_argument("--no-xterm", action="store_true", help="Disable multi-window UI")
     simple_p.set_defaults(func=run_simple)
 
@@ -132,11 +133,14 @@ def parse_arguments():
     a_opts.add_argument("-p", "--profile", required=False, metavar="NAME", help="Active Wi-Fi profile [default: auto]")
     a_opts.add_argument("-t", "--target", required=False, metavar="CIDR", help="Target CIDR subnet [default: auto]")
     a_opts.add_argument("--subnet", required=False, metavar="CIDR", help="Subnet for deep host discovery")
-    a_opts.add_argument("-s", "--select-bssid", action="store_true", help="Interactively select starting BSSID")
+    a_opts.add_argument("-s", "--select-bssid", nargs="?", const=True, default=False, metavar="TARGETS", help="Select target BSSID(s) interactively or by range (e.g. 1, 1,2,7, 1-10,12)")
+    a_opts.add_argument("-c", "--clients", action="store_true", dest="clients", help="Target BSSIDs with clients regardless of signal strength")
+    a_opts.add_argument("-b", "--threshold", type=int, default=10, dest="threshold", metavar="NUM", help="BSSID count threshold to prioritize channels with stronger signal [default: 10]")
     a_opts.add_argument("--air", nargs="?", const=-1, type=int, default=None, metavar="SECS", help="Enable 802.11 monitor capture")
     a_opts.add_argument("-i", "--interface", required=False, metavar="IFACE", help="Network interface [default: auto]")
     a_opts.add_argument("-m", "--original-mac", action="store_true", dest="original_mac", help="Use hardware MAC (do not randomize)")
     a_opts.add_argument("--force", action="store_true", help="Force scan even if internet is active")
+    a_opts.add_argument("--force-deauth", action="store_true", dest="force_deauth", help="Force 802.11 deauth even on open networks")
     a_opts.add_argument("--no-xterm", action="store_true", help="Disable multi-window UI")
     aggressive_p.set_defaults(func=run_aggressive)
 

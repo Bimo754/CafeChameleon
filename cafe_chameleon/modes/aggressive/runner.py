@@ -30,7 +30,7 @@ from cafe_chameleon.network.nmcli import (
     restore_auto
 )
 from cafe_chameleon.scanners.detector import auto_detect_network_params
-from cafe_chameleon.scanners.air import sniff_air_clients
+from cafe_chameleon.scanners.air import sniff_air_clients, is_monitor_mode_active, set_managed_mode
 
 from .selector import display_and_select_bssid
 from .air_target_handler import filter_valid_air_clients, test_air_client_targets
@@ -103,11 +103,30 @@ def run_aggressive(args) -> bool:
     if is_air:
         target_bssid_list = [b["bssid"] for b in bssids]
         target_channel_list = [b["chan"] for b in bssids if b.get("chan")]
-        air_clients_map = sniff_air_clients(target_bssid_list, interface=interface, duration=air_duration, target_channels=target_channel_list)
+        threshold_val = getattr(args, "threshold", getattr(args, "bssid_threshold", 10))
+        air_clients_map = sniff_air_clients(
+            target_bssid_list,
+            interface=interface,
+            duration=air_duration,
+            target_channels=target_channel_list,
+            bssids=bssids,
+            bssid_threshold=threshold_val
+        )
+        if is_monitor_mode_active(interface):
+            set_managed_mode(interface)
         set_main_status(status="Active Exploration")
 
     # 4. Display ranked BSSIDs & handle manual selection
-    bssids = display_and_select_bssid(bssids, air_clients_map, getattr(args, "select_bssid", False))
+    prioritize_clients = bool(
+        getattr(args, "clients", False)
+        or getattr(args, "prioritize_clients", False)
+    )
+    bssids = display_and_select_bssid(
+        bssids,
+        air_clients_map,
+        getattr(args, "select_bssid", False),
+        prioritize_clients=prioritize_clients
+    )
 
     tried_macs = set()
     last_skip_time = 0
@@ -116,6 +135,7 @@ def run_aggressive(args) -> bool:
         target_bssid = item["bssid"]
         signal_pct = item["signal"]
         chan = item["chan"]
+        target_sec = item.get("security", "")
 
         try:
             clear_window("hijack")
@@ -124,6 +144,9 @@ def run_aggressive(args) -> bool:
             msg = f"[{idx}/{len(bssids)}] Target: {target_bssid} (Sig: {signal_pct}%, Ch: {chan})"
             log_info(msg)
             log_main(f"\n{msg}")
+
+            if is_monitor_mode_active(interface):
+                set_managed_mode(interface)
 
             attack_mac = get_attack_mac(interface)
             trace(f"[FEATURE] Applying attack MAC {attack_mac} before locking to BSSID {target_bssid}")
@@ -147,9 +170,14 @@ def run_aggressive(args) -> bool:
             new_air_clients = filter_valid_air_clients(bssid_air_clients, tried_macs, auto_params, bssids)
 
             if new_air_clients:
-                success_air, stop_early = test_air_client_targets(new_air_clients, interface, target_bssid, chan, profile, tried_macs, auto_params, args)
+                success_air, stop_early = test_air_client_targets(
+                    new_air_clients, interface, target_bssid, chan, profile, tried_macs, auto_params, args, security=target_sec
+                )
                 if stop_early or (success_air and not getattr(args, "force", False)):
                     return True
+
+            if is_monitor_mode_active(interface):
+                set_managed_mode(interface)
 
             log_step(f"Scanning subnet on BSSID {target_bssid}...")
             log_main(f"  -> Scanning subnet on BSSID {target_bssid}...")
@@ -171,6 +199,8 @@ def run_aggressive(args) -> bool:
             if now - last_skip_time < 1.5:
                 log_warning("Double Ctrl+C. Exiting...")
                 log_main("[-] Double Ctrl+C. Exiting...")
+                if is_monitor_mode_active(interface):
+                    set_managed_mode(interface)
                 restore_auto(profile)
                 raise
 
@@ -178,13 +208,15 @@ def run_aggressive(args) -> bool:
             log_warning(f"Skipping BSSID {target_bssid} (Ctrl+C)...")
             log_main(f"\033[93m[-] Skipping BSSID {target_bssid} (Ctrl+C)...\033[0m")
             try:
+                if is_monitor_mode_active(interface):
+                    set_managed_mode(interface)
                 auto_params = auto_detect_network_params(target_iface=interface)
                 gw_ip = auto_params.get("gateway_ip", "")
                 local_mac = auto_params.get("local_mac", "")
                 ipmask = auto_params.get("cidr", "")
                 broadcast = auto_params.get("broadcast", "")
                 if interface and local_mac and ipmask:
-                    restore(interface, local_mac, ipmask, broadcast, gw_ip)
+                    restore(interface, local_mac, ipmask, broadcast, gw_ip, profile=profile)
             except Exception:
                 pass
             time.sleep(0.5)
@@ -193,5 +225,7 @@ def run_aggressive(args) -> bool:
     log_warning("Aggressive completed all BSSIDs without internet access.")
     log_main("[-] Aggressive completed all BSSIDs without internet access.")
     log_step("Restoring auto-roaming on profile...")
+    if is_monitor_mode_active(interface):
+        set_managed_mode(interface)
     restore_auto(profile)
     return False

@@ -41,7 +41,7 @@ def resolve_mac_to_ip(target_mac: str, interface: str, target_subnet: str | None
     log_hijack("[*] Checking kernel neighbor table & /proc/net/arp...")
 
     # Stage 1: Kernel ARP cache check
-    ip_found = check_kernel_cache(mac_clean, interface)
+    ip_found = check_kernel_cache(mac_clean, interface, target_subnet=target_subnet)
     if ip_found:
         set_hijack_status(ip=ip_found, technique="Kernel ARP Cache")
         log_hijack(f"\033[92m[+] IP found in kernel cache -> {ip_found}\033[0m")
@@ -61,22 +61,22 @@ def resolve_mac_to_ip(target_mac: str, interface: str, target_subnet: str | None
             pass
 
     # Stage 2: Direct Unicast ARP Probe Sweep
-    ip_found = probe_unicast_arp(mac_clean, candidate_ips, interface)
+    ip_found = probe_unicast_arp(mac_clean, candidate_ips, interface, target_subnet=target_subnet)
     if ip_found:
         return ip_found
 
     # Stage 3: Direct L3 TCP SYN & SMB Probes
-    ip_found = probe_tcp_syn(mac_clean, candidate_ips, interface)
+    ip_found = probe_tcp_syn(mac_clean, candidate_ips, interface, target_subnet=target_subnet)
     if ip_found:
         return ip_found
 
     # Stage 4: DHCP INFORM Query Probe
-    ip_found = probe_dhcp_inform(mac_clean, interface)
+    ip_found = probe_dhcp_inform(mac_clean, interface, target_subnet=target_subnet)
     if ip_found:
         return ip_found
 
     # Stage 5: Passive Traffic Listener (3 seconds)
-    ip_found = listen_passive_traffic(mac_clean, interface, timeout=3)
+    ip_found = listen_passive_traffic(mac_clean, interface, timeout=3, target_subnet=target_subnet)
     if ip_found:
         return ip_found
 

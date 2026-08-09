@@ -10,6 +10,23 @@ from cafe_chameleon.ui.console import set_air_mode
 from cafe_chameleon.network.sysfs import wait_for_carrier
 
 
+def is_monitor_mode_active(iface: str = "wlan0") -> bool:
+    """Checks if the given interface or system has an active 802.11 monitor interface."""
+    rc, out = _run(f"iw dev {iface} info", debug=False)
+    if "type monitor" in out.lower():
+        return True
+    mon = get_monitor_interface(iface)
+    if mon != iface:
+        rc, out_mon = _run(f"iw dev {mon} info", debug=False)
+        if "type monitor" in out_mon.lower():
+            return True
+    rc, link_out = _run(["ip", "-o", "link", "show"], debug=False)
+    for line in link_out.splitlines():
+        if f"{iface}mon" in line or "mon0" in line or "wlan0mon" in line:
+            return True
+    return False
+
+
 def get_monitor_interface(default_iface: str = "wlan0") -> str:
     """Detects active monitor mode interface name (e.g. wlan0mon or wlan0)."""
     rc, out = _run(["ip", "-o", "link", "show"])
@@ -52,9 +69,14 @@ def set_managed_mode(interface: str = "wlan0") -> None:
             _run(["airmon-ng", "stop", mon_iface], debug=False)
         _run(["airmon-ng", "stop", interface], debug=False)
 
+    if mon_iface != interface:
+        _run(["iw", "dev", mon_iface, "del"], debug=False)
+
     _run(["ip", "link", "set", "dev", interface, "down"], debug=False)
     _run(["iw", "dev", interface, "set", "type", "managed"], debug=False)
     _run(["ip", "link", "set", "dev", interface, "up"], debug=False)
+
+    _run(["nmcli", "device", "set", interface, "managed", "yes"], debug=False)
 
     if shutil.which("systemctl"):
         _run(["systemctl", "restart", "wpa_supplicant"], debug=False)

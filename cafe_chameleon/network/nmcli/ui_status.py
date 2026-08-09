@@ -20,20 +20,23 @@ def select_bssid_interactively(target_ssid: str) -> str | None:
         return None
 
     print(f"\nFound {len(bssids)} BSSID(s) for '{target_ssid}':")
-    print("=" * 60)
-    print(f"{'#':<4} {'BSSID':<20} {'SIGNAL':<8} {'CHAN':<6} {'STATUS'}")
-    print("-" * 60)
+    print("=" * 72)
+    print(f"{'#':<4} {'BSSID':<20} {'SIGNAL':<8} {'CHAN':<6} {'SECURITY':<12} {'STATUS'}")
+    print("-" * 72)
     for idx, item in enumerate(bssids, start=1):
         status = "[CONNECTED]" if item["active"] else ""
-        print(f"{idx:<4} {item['bssid']:<20} {item['signal'] + '%':<8} {item['chan']:<6} {status}")
-    print("=" * 60)
+        sec = item.get("security") or "OPEN"
+        print(f"{idx:<4} {item['bssid']:<20} {item['signal'] + '%':<8} {item['chan']:<6} {sec:<12} {status}")
+    print("=" * 72)
 
     while True:
         try:
-            choice = get_user_input(f"\nSelect BSSID (1-{len(bssids)}) [or 'q' to cancel]: ").strip()
-            if choice.lower() == 'q':
+            choice = get_user_input(f"\nSelect BSSID (1-{len(bssids)}) [or 'q'/Ctrl+C in xterm to cancel]: ").strip()
+            if choice.lower() in ('q', 'quit', 'exit'):
                 log_info("Cancelled.")
-                sys.exit(0)
+                from cafe_chameleon.utils.signals import restore_and_exit
+                restore_and_exit("User cancelled BSSID selection.")
+                return None
             val = int(choice)
             if 1 <= val <= len(bssids):
                 return bssids[val - 1]["bssid"]
@@ -43,7 +46,9 @@ def select_bssid_interactively(target_ssid: str) -> str | None:
             log_warning("Invalid input.")
         except (KeyboardInterrupt, EOFError):
             log_warning("Aborted.")
-            sys.exit(0)
+            from cafe_chameleon.utils.signals import restore_and_exit
+            restore_and_exit("Ctrl+C received during BSSID selection.")
+            return None
 
 
 def show_status() -> None:
@@ -59,15 +64,16 @@ def show_status() -> None:
             print(f"{BOLD}Lock{RESET}    : {GREEN}AUTO (Roaming){RESET}")
         
         details = {}
-        rc, out = _run(["nmcli", "-t", "-f", "active,bssid,ssid,signal", "dev", "wifi"], debug=False)
+        rc, out = _run(["nmcli", "-t", "-f", "active,bssid,ssid,signal,security", "dev", "wifi"], debug=False)
         for line in out.splitlines():
             if line.startswith("yes:"):
                 unescaped = line.replace(r"\:", "\x00")
                 parts = unescaped.split(":")
-                if len(parts) >= 4:
+                if len(parts) >= 5:
                     details["Active BSSID"] = parts[1].replace("\x00", ":").strip()
                     details["SSID"] = parts[2].replace("\x00", ":").strip()
                     details["Signal"] = f"{parts[3].strip()}%"
+                    details["Security"] = parts[4].replace("\x00", ":").strip() or "OPEN"
                     break
 
         for k, v in details.items():

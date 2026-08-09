@@ -45,7 +45,6 @@ def format_window_text(target: str, text: str) -> str:
     return f"{color}{text}\033[0m"
 
 
-
 def log_main(text: str, clear: bool = False, add_newline: bool = True) -> None:
     if get_quiet():
         return
@@ -67,7 +66,7 @@ def log_air(text: str, clear: bool = False) -> None:
         return
     formatted = format_window_text("air", text)
     if not log_to_xterm("air", formatted, clear=clear):
-        log_info(text)
+        print(colors.colorize_brackets(text))
 
 
 def set_air_mode(mode: str) -> None:
@@ -77,7 +76,7 @@ def set_air_mode(mode: str) -> None:
         XtermManager._instance.set_air_mode(mode)
     else:
         color = "\033[38;5;208m" if mode.lower() == "monitor" else "\033[1;32m"
-        log_info(f"[*] Mode: {color}{mode}\033[0m")
+        print(colors.colorize_brackets(f"[*] Mode: {color}{mode}\033[0m"))
 
 
 def log_scan(text: str, clear: bool = False) -> None:
@@ -85,7 +84,7 @@ def log_scan(text: str, clear: bool = False) -> None:
         return
     formatted = format_window_text("scan", text)
     if not log_to_xterm("scan", formatted, clear=clear):
-        log_info(text)
+        print(colors.colorize_brackets(text))
 
 
 def set_scan_status(subnet: str | None = None, count: int | None = None, scan_type: str | None = None) -> None:
@@ -100,7 +99,7 @@ def log_hijack(text: str, clear: bool = False) -> None:
         return
     formatted = format_window_text("hijack", text)
     if not log_to_xterm("hijack", formatted, clear=clear):
-        log_info(text)
+        print(colors.colorize_brackets(text))
 
 
 def set_hijack_status(ip: str | None = None, technique: str | None = None, clear_section2: bool = False) -> None:
@@ -110,9 +109,9 @@ def set_hijack_status(ip: str | None = None, technique: str | None = None, clear
         XtermManager._instance.set_hijack_status(ip=ip, technique=technique, clear_section2=clear_section2)
     else:
         if technique:
-            log_info(f"[*] Technique: {technique}")
+            print(colors.colorize_brackets(f"[*] Technique: {technique}"))
         if ip:
-            log_info(f"[+] Resolved IP: {ip}")
+            print(colors.colorize_brackets(f"[+] Resolved IP: {ip}"))
 
 
 def clear_hijack_section2() -> None:
@@ -149,12 +148,14 @@ def get_user_input(prompt: str = "") -> str:
                         return line.strip("\r\n")
                 finally:
                     os.close(fd_fifo)
+            except (KeyboardInterrupt, InterruptedError):
+                raise
             except Exception:
                 pass
 
     try:
         return input(prompt)
-    except (KeyboardInterrupt, EOFError):
+    except EOFError:
         return ""
 
 
@@ -204,4 +205,3 @@ def log_wait(text: str, end: str | None = None, start: str = "") -> None:
     if get_quiet():
         return
     colors.wait(text, end=end, start=start)
-

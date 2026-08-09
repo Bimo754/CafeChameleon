@@ -7,11 +7,19 @@ import re
 DIGIT_REGEX = re.compile(r"[^\d]")
 
 
-def calculate_bssid_score(bssid_item, air_clients_map: dict | None = None) -> tuple[int, int, int]:
+def calculate_bssid_score(
+    bssid_item,
+    air_clients_map: dict | None = None,
+    prioritize_clients: bool = False
+) -> tuple[int, int, int]:
     """
     Calculates auto-selection score for a BSSID based on:
-    1. Signal strength percentage (heavily prioritized)
-    2. Number of captured clients (secondary boost / tie-breaker)
+    - Default:
+      1. Signal strength percentage (heavily prioritized)
+      2. Number of captured clients (secondary boost / tie-breaker)
+    - With prioritize_clients=True:
+      1. Number of captured clients (heavily prioritized regardless of signal)
+      2. Signal strength percentage (secondary boost / tie-breaker)
     """
     bssid_mac = bssid_item["bssid"].lower()
 
@@ -25,5 +33,9 @@ def calculate_bssid_score(bssid_item, air_clients_map: dict | None = None) -> tu
     if air_clients_map and bssid_mac in air_clients_map:
         client_count = len(air_clients_map[bssid_mac])
 
-    score = (signal_pct * 75) + (client_count * 80)
+    if prioritize_clients:
+        score = (client_count * 10000) + (signal_pct * 75)
+    else:
+        score = (signal_pct * 75) + (client_count * 80)
+
     return score, client_count, signal_pct
