@@ -22,7 +22,7 @@ from cafe_chameleon.scanners.resolver import is_valid_ipv4
 
 def test_discovered_hosts(unique_hosts: list[dict], interface: str, gw_ip: str, gw_mac: str, netmask: str, broadcast: str, local_mac: str, ipmask: str, profile: str | None, args) -> bool:
     """Iterates through discovered active hosts and attempts host impersonation/takeover."""
-    set_scan_status(scan_type="N/A")
+    set_scan_status(scan_type="Host Takeover")
     log_main("[*] Testing discovered hosts for internet access...")
 
     force_deauth = getattr(args, "force_deauth", False)
@@ -56,12 +56,15 @@ def test_discovered_hosts(unique_hosts: list[dict], interface: str, gw_ip: str, 
                             restore(interface, local_mac, ipmask, broadcast, gw_ip)
                         else:
                             log_plus("Keeping current network config.")
+                        set_hijack_status(ip=None, technique="Idle")
                         return has_acc
 
                 time.sleep(0.5)
         except HijackSkipInterrupt:
             log_scan(f"\033[93m[-] Skipping host {host['ip']} (Ctrl+C)...\033[0m")
             log_main(f"\033[93m[-] Skipping host {host['ip']} (Ctrl+C)...\033[0m")
+            set_hijack_status(ip=None, technique="Idle")
             continue
 
+    set_hijack_status(ip=None, technique="Idle")
     return False

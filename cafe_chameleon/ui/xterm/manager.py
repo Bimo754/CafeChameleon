@@ -20,6 +20,9 @@ from .headers import (
 )
 
 
+_DEFAULT = object()
+
+
 class XtermManager:
     _instance = None
 
@@ -168,16 +171,21 @@ class XtermManager:
             except Exception:
                 pass
 
-    def set_hijack_status(self, ip: str | None = None, technique: str | None = None, clear_section2: bool = False) -> None:
-        if ip is not None:
-            try:
-                from cafe_chameleon.scanners.resolver.kernel_cache import is_valid_ipv4
-                if is_valid_ipv4(str(ip)):
+    def set_hijack_status(self, ip=_DEFAULT, technique: str | None = None, clear_section2: bool = False) -> None:
+        if ip is not _DEFAULT:
+            if ip is None or str(ip).strip() == "" or str(ip).strip().lower() in ("not found", "none", "n/a"):
+                self.hijack_ip = None
+            else:
+                try:
+                    from cafe_chameleon.scanners.resolver.kernel_cache import is_valid_ipv4
+                    if is_valid_ipv4(str(ip)):
+                        self.hijack_ip = str(ip)
+                    else:
+                        self.hijack_ip = None
+                except Exception:
                     self.hijack_ip = str(ip)
-            except Exception:
-                pass
         if technique is not None:
-            self.hijack_technique = technique
+            self.hijack_technique = str(technique) if technique else "Idle"
         if not self.enabled or self.closing or "hijack" not in self.active_windows:
             return
         handle = self.handles.get("hijack")
@@ -205,13 +213,13 @@ class XtermManager:
             except Exception:
                 pass
 
-    def set_scan_status(self, subnet: str | None = None, count: int | None = None, scan_type: str | None = None) -> None:
-        if subnet is not None:
-            self.scan_subnet = subnet
-        if count is not None:
-            self.scan_hosts_count = count
-        if scan_type is not None:
-            self.scan_type = scan_type
+    def set_scan_status(self, subnet=_DEFAULT, count=_DEFAULT, scan_type=_DEFAULT) -> None:
+        if subnet is not _DEFAULT:
+            self.scan_subnet = str(subnet) if (subnet is not None and str(subnet).strip() not in ("", "None")) else "N/A"
+        if count is not _DEFAULT:
+            self.scan_hosts_count = int(count) if count is not None else 0
+        if scan_type is not _DEFAULT:
+            self.scan_type = str(scan_type) if (scan_type is not None and str(scan_type).strip() not in ("", "None")) else "Idle"
         if not self.enabled or self.closing or "scan" not in self.active_windows:
             return
         handle = self.handles.get("scan")

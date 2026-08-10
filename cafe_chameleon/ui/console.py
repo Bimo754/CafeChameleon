@@ -87,11 +87,21 @@ def log_scan(text: str, clear: bool = False) -> None:
         print(colors.colorize_brackets(text))
 
 
-def set_scan_status(subnet: str | None = None, count: int | None = None, scan_type: str | None = None) -> None:
+_DEFAULT = object()
+
+
+def set_scan_status(subnet=_DEFAULT, count=_DEFAULT, scan_type=_DEFAULT) -> None:
     if get_quiet():
         return
     if get_use_xterm() and XtermManager and XtermManager._instance and XtermManager._instance.enabled:
-        XtermManager._instance.set_scan_status(subnet=subnet, count=count, scan_type=scan_type)
+        kwargs = {}
+        if subnet is not _DEFAULT:
+            kwargs["subnet"] = subnet
+        if count is not _DEFAULT:
+            kwargs["count"] = count
+        if scan_type is not _DEFAULT:
+            kwargs["scan_type"] = scan_type
+        XtermManager._instance.set_scan_status(**kwargs)
 
 
 def log_hijack(text: str, clear: bool = False) -> None:
@@ -102,16 +112,24 @@ def log_hijack(text: str, clear: bool = False) -> None:
         print(colors.colorize_brackets(text))
 
 
-def set_hijack_status(ip: str | None = None, technique: str | None = None, clear_section2: bool = False) -> None:
+def set_hijack_status(ip=_DEFAULT, technique: str | None = None, clear_section2: bool = False) -> None:
     if get_quiet():
         return
     if get_use_xterm() and XtermManager and XtermManager._instance and XtermManager._instance.enabled:
-        XtermManager._instance.set_hijack_status(ip=ip, technique=technique, clear_section2=clear_section2)
+        kwargs = {"clear_section2": clear_section2}
+        if ip is not _DEFAULT:
+            kwargs["ip"] = ip
+        if technique is not None:
+            kwargs["technique"] = technique
+        XtermManager._instance.set_hijack_status(**kwargs)
     else:
         if technique:
             print(colors.colorize_brackets(f"[*] Technique: {technique}"))
-        if ip:
-            print(colors.colorize_brackets(f"[+] Resolved IP: {ip}"))
+        if ip is not _DEFAULT:
+            if ip and str(ip).strip().lower() not in ("none", "not found", "n/a"):
+                print(colors.colorize_brackets(f"[+] Resolved IP: {ip}"))
+            elif ip is None or str(ip).strip().lower() in ("not found", "none", "n/a"):
+                print(colors.colorize_brackets(f"[*] Resolved IP: Not Found"))
 
 
 def clear_hijack_section2() -> None:

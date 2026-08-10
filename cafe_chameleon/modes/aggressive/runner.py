@@ -12,6 +12,8 @@ from cafe_chameleon.ui.console import (
     log_warning,
     log_main,
     set_main_status,
+    set_scan_status,
+    set_hijack_status,
     log_hijack,
     clear_window,
     log_step,
@@ -169,6 +171,8 @@ def run_aggressive(args) -> bool:
         try:
             clear_window("hijack")
             clear_window("scan")
+            set_scan_status(subnet="N/A", count=0, scan_type="Idle")
+            set_hijack_status(ip=None, technique="Idle")
 
             msg = f"[{idx}/{len(bssids)}] Target: {target_bssid} (Sig: {signal_pct}%, Ch: {chan})"
             log_info(msg)
@@ -205,6 +209,8 @@ def run_aggressive(args) -> bool:
                 if stop_early or (success_air and not getattr(args, "force", False)):
                     return True
 
+            set_hijack_status(ip=None, technique="Idle")
+
             if is_monitor_mode_active(interface):
                 set_managed_mode(interface)
 
@@ -213,6 +219,8 @@ def run_aggressive(args) -> bool:
             log_hijack(f"[*] Scanning subnet on BSSID {target_bssid}...")
             setattr(args, "interface", interface)
             success = run_scan_wrapper(args, quiet_header=True)
+
+            set_scan_status(scan_type="Idle")
 
             if success or (has_internet() and not getattr(args, "force", False)):
                 log_plus(f"SUCCESS! Internet access granted via {target_bssid}!")
@@ -236,6 +244,8 @@ def run_aggressive(args) -> bool:
             last_skip_time = now
             log_warning(f"Skipping BSSID {target_bssid} (Ctrl+C)...")
             log_main(f"\033[93m[-] Skipping BSSID {target_bssid} (Ctrl+C)...\033[0m")
+            set_scan_status(subnet="N/A", count=0, scan_type="Idle")
+            set_hijack_status(ip=None, technique="Idle")
             try:
                 if is_monitor_mode_active(interface):
                     set_managed_mode(interface)

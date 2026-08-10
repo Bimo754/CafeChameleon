@@ -146,6 +146,44 @@ class TestSignalsAndRestoreCleanup(unittest.TestCase):
         logged_texts = [call_args[0][0] for call_args in mock_log_air.call_args_list]
         self.assertTrue(any("Ctrl+C" in t for t in logged_texts))
 
+    def test_xterm_manager_status_reset_and_idle(self):
+        from cafe_chameleon.ui.xterm.manager import XtermManager
+        mgr = XtermManager(enabled=False)
+        
+        # Test scan status setting and reset
+        mgr.set_scan_status(subnet="10.0.0.0/24", count=5, scan_type="Deep Scan")
+        self.assertEqual(mgr.scan_subnet, "10.0.0.0/24")
+        self.assertEqual(mgr.scan_hosts_count, 5)
+        self.assertEqual(mgr.scan_type, "Deep Scan")
+
+        # Partial update
+        mgr.set_scan_status(count=6)
+        self.assertEqual(mgr.scan_subnet, "10.0.0.0/24")
+        self.assertEqual(mgr.scan_hosts_count, 6)
+        self.assertEqual(mgr.scan_type, "Deep Scan")
+
+        # Reset to idle
+        mgr.set_scan_status(subnet="N/A", count=0, scan_type="Idle")
+        self.assertEqual(mgr.scan_subnet, "N/A")
+        self.assertEqual(mgr.scan_hosts_count, 0)
+        self.assertEqual(mgr.scan_type, "Idle")
+
+        # Test hijack status setting, clear, and reset
+        mgr.set_hijack_status(ip="10.0.0.50", technique="ARP Cache Poisoning")
+        self.assertEqual(mgr.hijack_ip, "10.0.0.50")
+        self.assertEqual(mgr.hijack_technique, "ARP Cache Poisoning")
+
+        # Partial update technique only preserves IP
+        mgr.set_hijack_status(technique="Host Impersonation Sweep")
+        self.assertEqual(mgr.hijack_ip, "10.0.0.50")
+        self.assertEqual(mgr.hijack_technique, "Host Impersonation Sweep")
+
+        # Reset IP back to None / Not Found
+        mgr.set_hijack_status(ip=None, technique="Idle")
+        self.assertIsNone(mgr.hijack_ip)
+        self.assertEqual(mgr.hijack_technique, "Idle")
+
 
 if __name__ == "__main__":
     unittest.main()
+

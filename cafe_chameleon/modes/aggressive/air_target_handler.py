@@ -13,7 +13,9 @@ from cafe_chameleon.ui.console import (
     log_plus,
     log_hijack,
     log_step,
-    log_wait
+    log_wait,
+    set_scan_status,
+    set_hijack_status
 )
 from cafe_chameleon.ui.prompts import ask_proceed, ask_restore
 from cafe_chameleon.network.internet import has_internet
@@ -74,6 +76,7 @@ def test_air_client_targets(
 
     log_step(f"Testing {len(new_air_clients)} air target(s)...")
     log_main(f"  -> Testing {len(new_air_clients)} air target(s)...")
+    set_scan_status(scan_type="Idle")
 
     auto_ip = auto_params.get("local_ip") or "10.68.193.222"
     gw_ip = auto_params.get("gateway_ip", "")
@@ -95,11 +98,14 @@ def test_air_client_targets(
             if client_ip and is_valid_ipv4(client_ip, subnet_cidr=auto_params.get("cidr")):
                 valid_air_ip = str(client_ip)
 
+            set_hijack_status(ip=valid_air_ip or None, technique="Resolving Target IP", clear_section2=True)
+
             resolved_ip = valid_air_ip or resolve_mac_to_ip(client_mac, interface, target_subnet=auto_params.get("cidr"))
             
             if not resolved_ip:
                 log_wait(f"Querying DHCP lease -> {client_mac}...")
                 log_hijack(f"[*] Querying DHCP lease -> {client_mac}...")
+                set_hijack_status(ip=None, technique="DHCP Lease Query")
                 set_mac_address(interface, client_mac, profile=profile)
                 if not wait_for_carrier(interface, timeout=6.0):
                     lock_bssid(target_bssid, profile)
@@ -108,9 +114,14 @@ def test_air_client_targets(
 
                 if not resolved_ip:
                     log_hijack(f"[*] DHCP fallback: running multi-stage L2/L3 probes as {client_mac}...")
+                    set_hijack_status(ip=None, technique="L2/L3 Fallback Probes")
                     resolved_ip = resolve_mac_to_ip(client_mac, interface, target_subnet=auto_params.get("cidr"))
 
             target_ip = resolved_ip or auto_ip
+            if resolved_ip:
+                set_hijack_status(ip=resolved_ip, technique="IP Resolved")
+            else:
+                set_hijack_status(ip=None, technique="Using Fallback IP")
 
             if not wait_for_carrier(interface, timeout=6.0):
                 lock_bssid(target_bssid, profile)
@@ -140,7 +151,10 @@ def test_air_client_targets(
         except HijackSkipInterrupt:
             log_hijack(f"\033[93m[-] Skipped target {client_mac}\033[0m")
             log_main(f"\033[93m[-] Skipped target {client_mac}\033[0m")
+            set_hijack_status(ip=None, technique="Idle")
             continue
+
+    set_hijack_status(ip=None, technique="Idle")
 
     has_acc = has_internet()
     if getattr(args, "force", False):
