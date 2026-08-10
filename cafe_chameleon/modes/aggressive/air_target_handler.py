@@ -33,7 +33,7 @@ def filter_valid_air_clients(bssid_air_clients: dict, tried_macs: set, auto_para
     def is_valid_client(m_clean):
         if m_clean in tried_macs or m_clean in all_bssids_clean or m_clean == gw_mac_clean or m_clean == local_mac_clean:
             return False
-        if m_clean.startswith("01:00:5e") or m_clean.startswith("33:33") or m_clean.startswith("00:00:5e"):
+        if m_clean.startswith("01:00:5e") or m_clean.startswith("33:33") or m_clean.startswith("00:00:5e") or m_clean.startswith("02:00:00"):
             return False
         try:
             fb = int(m_clean.split(":")[0], 16)

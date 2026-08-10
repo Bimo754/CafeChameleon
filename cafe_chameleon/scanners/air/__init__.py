@@ -11,6 +11,12 @@ from .sniffer import (
     calculate_scaled_air_duration,
     should_weight_channels_by_signal
 )
+from .stimulator import (
+    ClientStimulator,
+    build_probe_req_packet,
+    build_null_data_packet,
+    build_wakeup_deauth_packet
+)
 
 __all__ = [
     "get_monitor_interface",
@@ -22,5 +28,9 @@ __all__ = [
     "calculate_channel_densities",
     "calculate_channel_dwell_times",
     "calculate_scaled_air_duration",
-    "should_weight_channels_by_signal"
+    "should_weight_channels_by_signal",
+    "ClientStimulator",
+    "build_probe_req_packet",
+    "build_null_data_packet",
+    "build_wakeup_deauth_packet"
 ]

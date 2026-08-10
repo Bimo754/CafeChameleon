@@ -137,6 +137,7 @@ def parse_arguments():
     a_opts.add_argument("-c", "--clients", action="store_true", dest="clients", help="Target BSSIDs with clients regardless of signal strength")
     a_opts.add_argument("-b", "--threshold", type=int, default=10, dest="threshold", metavar="NUM", help="BSSID count threshold to prioritize channels with stronger signal [default: 10]")
     a_opts.add_argument("--air", nargs="?", const=-1, type=int, default=None, metavar="SECS", help="Enable 802.11 monitor capture")
+    a_opts.add_argument("--passive-only", action="store_true", dest="passive_only", help="Disable active 802.11 packet stimulation (pure passive listening)")
     a_opts.add_argument("-i", "--interface", required=False, metavar="IFACE", help="Network interface [default: auto]")
     a_opts.add_argument("-m", "--original-mac", action="store_true", dest="original_mac", help="Use hardware MAC (do not randomize)")
     a_opts.add_argument("--force", action="store_true", help="Force scan even if internet is active")

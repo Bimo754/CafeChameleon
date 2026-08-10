@@ -25,6 +25,7 @@ def parse_air_packet(pkt, target_bssids_set: set[str], ignore_macs: set[str], bs
         addr1 = str(dot11.addr1).lower() if dot11.addr1 else None
         addr2 = str(dot11.addr2).lower() if dot11.addr2 else None
         addr3 = str(dot11.addr3).lower() if dot11.addr3 else None
+        addr4 = str(getattr(dot11, "addr4", None)).lower() if getattr(dot11, "addr4", None) else None
 
         client_ip = None
         bootp_mac = None
@@ -189,46 +190,102 @@ def parse_air_packet(pkt, target_bssids_set: set[str], ignore_macs: set[str], bs
 
         matched_bssid = None
         client_candidate = None
+        subtype = getattr(dot11, "subtype", None)
 
+        # Frame Dissection & Client Mapping
         if to_ds and not from_ds:
+            # Client -> AP (Uplink Data)
             if addr1 and addr1 in target_bssids_set:
                 matched_bssid = addr1
                 client_candidate = bootp_mac or addr2
+            elif addr3 and addr3 in target_bssids_set:
+                matched_bssid = addr3
+                client_candidate = bootp_mac or addr2
         elif from_ds and not to_ds:
+            # AP -> Client (Downlink Data)
             if addr2 and addr2 in target_bssids_set:
                 matched_bssid = addr2
                 client_candidate = bootp_mac or addr1
-        elif not to_ds and not from_ds:
-            if dot11.type == 0 and hasattr(dot11, "subtype"):
-                if dot11.subtype in (0, 2, 11):
+            elif addr3 and addr3 in target_bssids_set:
+                matched_bssid = addr3
+                client_candidate = bootp_mac or addr1
+        elif to_ds and from_ds:
+            # WDS / Mesh frame
+            if addr1 in target_bssids_set:
+                matched_bssid = addr1
+                client_candidate = bootp_mac or addr4 or addr2
+            elif addr2 in target_bssids_set:
+                matched_bssid = addr2
+                client_candidate = bootp_mac or addr3 or addr1
+        else:
+            # not to_ds and not from_ds (Management, Control, or Direct / IBSS Data)
+            if dot11.type == 0:
+                # 802.11 Management frames
+                # Subtype 0: Assoc Req (addr1=BSSID, addr2=Client, addr3=BSSID)
+                # Subtype 1: Assoc Resp (addr1=Client, addr2=BSSID, addr3=BSSID)
+                # Subtype 2: Reassoc Req (addr1=BSSID, addr2=Client, addr3=BSSID)
+                # Subtype 3: Reassoc Resp (addr1=Client, addr2=BSSID, addr3=BSSID)
+                # Subtype 4: Probe Req (addr1=DA/Broadcast, addr2=Client, addr3=BSSID/Broadcast)
+                # Subtype 5: Probe Resp (addr1=Client, addr2=BSSID, addr3=BSSID) -> HIGH VALUE FOR FAR CLIENTS!
+                # Subtype 10: Disassoc (addr1=RA, addr2=TA, addr3=BSSID)
+                # Subtype 11: Auth (addr1=RA, addr2=TA, addr3=BSSID)
+                # Subtype 12: Deauth (addr1=RA, addr2=TA, addr3=BSSID)
+                # Subtype 13: Action (addr1=RA, addr2=TA, addr3=BSSID)
+                if subtype in (0, 2):
                     if addr1 and addr1 in target_bssids_set:
                         matched_bssid = addr1
                         client_candidate = bootp_mac or addr2
                     elif addr3 and addr3 in target_bssids_set:
                         matched_bssid = addr3
                         client_candidate = bootp_mac or addr2
-                elif dot11.subtype in (1, 3):
+                elif subtype in (1, 3, 5):
+                    # AP transmitting to Client
                     if addr2 and addr2 in target_bssids_set:
                         matched_bssid = addr2
                         client_candidate = bootp_mac or addr1
                     elif addr3 and addr3 in target_bssids_set:
                         matched_bssid = addr3
                         client_candidate = bootp_mac or addr1
+                elif subtype == 4:
+                    # Client transmitting Probe Request directed to specific target BSSID
+                    if addr1 and addr1 in target_bssids_set:
+                        matched_bssid = addr1
+                        client_candidate = bootp_mac or addr2
+                    elif addr3 and addr3 in target_bssids_set:
+                        matched_bssid = addr3
+                        client_candidate = bootp_mac or addr2
+                elif subtype in (10, 11, 12, 13):
+                    # Bi-directional management frames (Auth, Deauth, Disassoc, Action)
+                    if addr1 and addr1 in target_bssids_set:
+                        matched_bssid = addr1
+                        client_candidate = bootp_mac or addr2
+                    elif addr2 and addr2 in target_bssids_set:
+                        matched_bssid = addr2
+                        client_candidate = bootp_mac or addr1
+                    elif addr3 and addr3 in target_bssids_set:
+                        matched_bssid = addr3
+                        # If addr3 is BSSID, client is whichever of addr1/addr2 is not the BSSID
+                        if addr1 and addr1 != addr3:
+                            client_candidate = bootp_mac or addr1
+                        elif addr2 and addr2 != addr3:
+                            client_candidate = bootp_mac or addr2
+
             elif dot11.type == 1:
-                # Control frames: Type 1
+                # 802.11 Control frames
+                # Subtype 8: Block ACK Request (addr1=RA, addr2=TA)
                 # Subtype 10: PS-Poll (addr1=BSSID/RA, addr2=Client/TA)
                 # Subtype 11: RTS (addr1=BSSID/RA, addr2=Client/TA)
-                # Subtype 8: Block ACK Request (addr1=RA, addr2=TA)
-                # Subtype 9: Block ACK (addr1=RA)
-                if hasattr(dot11, "subtype"):
-                    if dot11.subtype in (8, 10, 11):
-                        if addr1 and addr1 in target_bssids_set:
-                            matched_bssid = addr1
-                            client_candidate = addr2
-                        elif addr2 and addr2 in target_bssids_set:
-                            matched_bssid = addr2
-                            client_candidate = addr1
+                # Subtype 12: CTS (addr1=RA)
+                if subtype in (8, 10, 11):
+                    if addr1 and addr1 in target_bssids_set:
+                        matched_bssid = addr1
+                        client_candidate = addr2
+                    elif addr2 and addr2 in target_bssids_set:
+                        matched_bssid = addr2
+                        client_candidate = addr1
+
             elif dot11.type == 2:
+                # Direct / IBSS / Null Data
                 if addr1 and addr1 in target_bssids_set:
                     matched_bssid = addr1
                     client_candidate = bootp_mac or addr2
@@ -237,15 +294,28 @@ def parse_air_packet(pkt, target_bssids_set: set[str], ignore_macs: set[str], bs
                     client_candidate = bootp_mac or addr1
                 elif addr3 and addr3 in target_bssids_set:
                     matched_bssid = addr3
-                    client_candidate = bootp_mac or addr2
+                    client_candidate = bootp_mac or (addr2 if addr2 and addr2 != addr3 else addr1)
 
         if matched_bssid and client_candidate:
             client_candidate = client_candidate.lower()
-            if client_candidate != matched_bssid and client_candidate not in ignore_macs:
+            if (
+                client_candidate != matched_bssid
+                and client_candidate not in ignore_macs
+                and not client_candidate.startswith("02:00:00")
+            ):
                 is_invalid = False
-                if client_candidate.startswith("01:00:5e") or client_candidate.startswith("33:33") or client_candidate.startswith("00:00:5e"):
+                # Filter multicast / broadcast / IPv6 / VRRP / stimulator prefixes
+                if (
+                    client_candidate.startswith("01:00:5e")
+                    or client_candidate.startswith("33:33")
+                    or client_candidate.startswith("00:00:5e")
+                    or client_candidate.startswith("02:00:00")
+                    or client_candidate == "ff:ff:ff:ff:ff:ff"
+                    or client_candidate == "00:00:00:00:00:00"
+                ):
                     is_invalid = True
 
+                # Check multicast / I/G bit on first octet
                 if not is_invalid:
                     try:
                         first_byte = int(client_candidate.split(":")[0], 16)
@@ -254,12 +324,9 @@ def parse_air_packet(pkt, target_bssids_set: set[str], ignore_macs: set[str], bs
                     except Exception:
                         is_invalid = True
 
-                if not is_invalid and len(client_candidate) >= 14:
-                    client_prefix = client_candidate[:14]
-                    for tb in target_bssids_set:
-                        if len(tb) >= 14 and client_prefix == tb[:14]:
-                            is_invalid = True
-                            break
+                # Discard if client is another known AP BSSID
+                if not is_invalid and client_candidate in target_bssids_set:
+                    is_invalid = True
 
                 if not is_invalid:
                     existing_ip = bssid_to_clients[matched_bssid].get(client_candidate)

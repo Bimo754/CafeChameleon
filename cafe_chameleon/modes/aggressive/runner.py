@@ -130,13 +130,16 @@ def run_aggressive(args) -> bool:
                 set_main_status(status=f"Air Sniffing ({air_duration}s)")
 
         threshold_val = getattr(args, "threshold", getattr(args, "bssid_threshold", 10))
+        passive_only = getattr(args, "passive_only", False)
         air_clients_map = sniff_air_clients(
             target_bssid_list,
             interface=interface,
             duration=air_duration,
             target_channels=target_channel_list,
             bssids=bssids,
-            bssid_threshold=threshold_val
+            bssid_threshold=threshold_val,
+            ssid=ssid,
+            enable_stimulation=not passive_only
         )
         if is_monitor_mode_active(interface):
             set_managed_mode(interface)

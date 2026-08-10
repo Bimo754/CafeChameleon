@@ -82,13 +82,13 @@ class TestSignalWeightedSniffing(unittest.TestCase):
         channels = [1, 6, 11]
         channel_signals = {1: 95, 6: 40, 11: 15}
 
-        dwell_times = calculate_channel_dwell_times(channels, channel_signals, base_dwell=0.35)
+        dwell_times = calculate_channel_dwell_times(channels, channel_signals, base_dwell=0.30)
 
         # Strong signal (ch 1: 95%) must have strictly more time than medium (ch 6: 40%) and weak (ch 11: 15%)
         self.assertGreater(dwell_times[1], dwell_times[6])
         self.assertGreater(dwell_times[6], dwell_times[11])
-        self.assertGreaterEqual(dwell_times[11], 0.30)
-        self.assertGreater(dwell_times[1], 0.60)
+        self.assertGreaterEqual(dwell_times[11], 0.25)
+        self.assertLessEqual(dwell_times[1], 0.50)
 
     def test_calculate_channel_dwell_times_includes_density_bonus(self):
         channels = [1, 6]
