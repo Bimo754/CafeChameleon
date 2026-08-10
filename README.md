@@ -66,6 +66,8 @@ CafeChameleon provides a structured testbed to evaluate these attack surfaces an
 * **Multi-BSSID Discovery**: Enumeration and structured ranking of all Access Points advertising the target ESSID.
 * **Signal-Weighted Channel Hopping (`-b` / `--threshold`)**: Dwells adaptively on high-signal channels when dense AP clusters are detected.
 * **Client-Focused Targeting (`-c` / `--clients`)**: Prioritizes BSSIDs with confirmed associated client stations regardless of raw RSSI.
+* **Global Client Pooling (`--any-bssid`)**: Decouples discovered clients from individual APs, pooling all air clients across all BSSIDs to test against the strongest signal APs.
+* **Fast Impersonation (`--any-ip`)**: Connects directly with local subnet IP, skipping multi-stage IP resolution probes and DHCP queries for instant MAC impersonation testing.
 * **Interactive & Range Selection (`-s` / `--select-bssid`)**: Allows manual targeting of specific Access Points via interactive prompts or numeric range lists.
 * **Security-Aware Deauth Protection**: Inspects AP encryption status; skips 802.11 deauthentication on open networks unless explicitly overridden with `--force-deauth`.
 * **802.11 Monitor Mode Telemetry (`--air`)**: Captures real-time client association frames, signal metrics, and probe requests.

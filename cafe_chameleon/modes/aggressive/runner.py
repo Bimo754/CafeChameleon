@@ -148,10 +148,22 @@ def run_aggressive(args) -> bool:
         set_main_status(status="Active Exploration")
 
     # 4. Display ranked BSSIDs & handle manual selection
+    any_bssid_mode = bool(getattr(args, "any_bssid", False) is True)
     prioritize_clients = bool(
-        getattr(args, "clients", False)
-        or getattr(args, "prioritize_clients", False)
+        not any_bssid_mode and (getattr(args, "clients", False) is True or getattr(args, "prioritize_clients", False) is True)
     )
+
+    pooled_air_clients = {}
+    if is_air and air_clients_map:
+        for b_clients in air_clients_map.values():
+            if isinstance(b_clients, dict):
+                for mac, ip in b_clients.items():
+                    if mac not in pooled_air_clients or (not pooled_air_clients[mac] and ip):
+                        pooled_air_clients[mac] = ip
+
+    if any_bssid_mode and is_air:
+        log_main(f"[+] --any-bssid enabled: Pooled {len(pooled_air_clients)} client(s) across all BSSIDs for target testing.")
+
     bssids = display_and_select_bssid(
         bssids,
         air_clients_map,
@@ -198,7 +210,11 @@ def run_aggressive(args) -> bool:
                 else:
                     log_main(f"[!] --force enabled. Continuing attack on {target_bssid}...")
 
-            bssid_air_clients = air_clients_map.get(target_bssid.lower(), {})
+            if any_bssid_mode:
+                bssid_air_clients = pooled_air_clients
+            else:
+                bssid_air_clients = air_clients_map.get(target_bssid.lower(), {})
+
             auto_params = auto_detect_network_params(target_iface=interface)
             new_air_clients = filter_valid_air_clients(bssid_air_clients, tried_macs, auto_params, bssids)
 

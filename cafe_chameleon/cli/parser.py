@@ -135,6 +135,8 @@ def parse_arguments():
     a_opts.add_argument("--subnet", required=False, metavar="CIDR", help="Subnet for deep host discovery")
     a_opts.add_argument("-s", "--select-bssid", nargs="?", const=True, default=False, metavar="TARGETS", help="Select target BSSID(s) interactively or by range (e.g. 1, 1,2,7, 1-10,12)")
     a_opts.add_argument("-c", "--clients", action="store_true", dest="clients", help="Target BSSIDs with clients regardless of signal strength")
+    a_opts.add_argument("--any-bssid", action="store_true", dest="any_bssid", help="Connect to any BSSID with strongest signal regardless of client AP association")
+    a_opts.add_argument("--any-ip", action="store_true", dest="any_ip", help="Connect with any IP to the BSSID (skip target IP resolution probes)")
     a_opts.add_argument("-b", "--threshold", type=int, default=10, dest="threshold", metavar="NUM", help="BSSID count threshold to prioritize channels with stronger signal [default: 10]")
     a_opts.add_argument("--air", nargs="?", const=-1, type=int, default=None, metavar="SECS", help="Enable 802.11 monitor capture")
     a_opts.add_argument("--passive-only", action="store_true", dest="passive_only", help="Disable active 802.11 packet stimulation (pure passive listening)")
