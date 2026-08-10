@@ -60,7 +60,7 @@ def send_deauth(
         log_hijack("[*] Open network detected (no encryption) -> Skipping MDK4 deauth...")
         return True
 
-    set_hijack_status(technique="802.11 Deauth Engine", clear_section2=True)
+    set_hijack_status(mac=target_mac, technique="802.11 Deauth Engine", clear_section2=True)
     bssid_target = bssid if bssid else "ff:ff:ff:ff:ff:ff"
     switched_monitor = False
     mon_iface = interface

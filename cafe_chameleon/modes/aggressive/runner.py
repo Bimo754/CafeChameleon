@@ -172,7 +172,7 @@ def run_aggressive(args) -> bool:
             clear_window("hijack")
             clear_window("scan")
             set_scan_status(subnet="N/A", count=0, scan_type="Idle")
-            set_hijack_status(ip=None, technique="Idle")
+            set_hijack_status(ip=None, mac=None, technique="Idle")
 
             msg = f"[{idx}/{len(bssids)}] Target: {target_bssid} (Sig: {signal_pct}%, Ch: {chan})"
             log_info(msg)
@@ -209,7 +209,7 @@ def run_aggressive(args) -> bool:
                 if stop_early or (success_air and not getattr(args, "force", False)):
                     return True
 
-            set_hijack_status(ip=None, technique="Idle")
+            set_hijack_status(ip=None, mac=None, technique="Idle")
 
             if is_monitor_mode_active(interface):
                 set_managed_mode(interface)
@@ -245,7 +245,7 @@ def run_aggressive(args) -> bool:
             log_warning(f"Skipping BSSID {target_bssid} (Ctrl+C)...")
             log_main(f"\033[93m[-] Skipping BSSID {target_bssid} (Ctrl+C)...\033[0m")
             set_scan_status(subnet="N/A", count=0, scan_type="Idle")
-            set_hijack_status(ip=None, technique="Idle")
+            set_hijack_status(ip=None, mac=None, technique="Idle")
             try:
                 if is_monitor_mode_active(interface):
                     set_managed_mode(interface)

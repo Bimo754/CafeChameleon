@@ -9,7 +9,7 @@ from .kernel_cache import is_valid_ipv4
 
 def listen_passive_traffic(mac_clean: str, interface: str, timeout: int = 3, target_subnet: str | None = None) -> str | None:
     try:
-        set_hijack_status(ip=None, technique="Passive Traffic Listener", clear_section2=True)
+        set_hijack_status(ip=None, mac=mac_clean, technique="Passive Traffic Listener", clear_section2=True)
         log_hijack(f"[*] Listening for broadcast/multicast packets ({timeout}s)...")
         trace(f"[*] Resolving {mac_clean} -> Passive Listener ({timeout}s)...")
         from scapy.all import sniff, Ether, IP, ARP, BOOTP
@@ -69,7 +69,7 @@ def listen_passive_traffic(mac_clean: str, interface: str, timeout: int = 3, tar
 
         sniff(iface=interface, timeout=timeout, prn=passive_mac_callback, store=False)
         if sniffed_ip[0]:
-            set_hijack_status(ip=sniffed_ip[0], technique="Passive Listener")
+            set_hijack_status(ip=sniffed_ip[0], mac=mac_clean, technique="Passive Listener")
             log_hijack(f"\033[92m[+] IP resolved via passive listening -> {sniffed_ip[0]}\033[0m")
             return sniffed_ip[0]
     except Exception:

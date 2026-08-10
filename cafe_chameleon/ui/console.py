@@ -112,13 +112,15 @@ def log_hijack(text: str, clear: bool = False) -> None:
         print(colors.colorize_brackets(text))
 
 
-def set_hijack_status(ip=_DEFAULT, technique: str | None = None, clear_section2: bool = False) -> None:
+def set_hijack_status(ip=_DEFAULT, mac=_DEFAULT, technique: str | None = None, clear_section2: bool = False) -> None:
     if get_quiet():
         return
     if get_use_xterm() and XtermManager and XtermManager._instance and XtermManager._instance.enabled:
         kwargs = {"clear_section2": clear_section2}
         if ip is not _DEFAULT:
             kwargs["ip"] = ip
+        if mac is not _DEFAULT:
+            kwargs["mac"] = mac
         if technique is not None:
             kwargs["technique"] = technique
         XtermManager._instance.set_hijack_status(**kwargs)
@@ -130,6 +132,11 @@ def set_hijack_status(ip=_DEFAULT, technique: str | None = None, clear_section2:
                 print(colors.colorize_brackets(f"[+] Resolved IP: {ip}"))
             elif ip is None or str(ip).strip().lower() in ("not found", "none", "n/a"):
                 print(colors.colorize_brackets(f"[*] Resolved IP: Not Found"))
+        if mac is not _DEFAULT:
+            if mac and str(mac).strip().lower() not in ("none", "not found", "n/a"):
+                print(colors.colorize_brackets(f"[+] Target MAC: {mac}"))
+            elif mac is None or str(mac).strip().lower() in ("not found", "none", "n/a"):
+                print(colors.colorize_brackets(f"[*] Target MAC: Not Found"))
 
 
 def clear_hijack_section2() -> None:

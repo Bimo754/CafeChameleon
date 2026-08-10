@@ -19,7 +19,10 @@ def query_dhcp_lease_ip(interface: str, target_mac: str | None = None, timeout: 
     from cafe_chameleon.network.sysfs import wait_for_carrier
     from cafe_chameleon.ui.console import set_hijack_status
 
-    set_hijack_status(technique="DHCP Lease Query", clear_section2=True)
+    if target_mac:
+        set_hijack_status(mac=target_mac, technique="DHCP Lease Query", clear_section2=True)
+    else:
+        set_hijack_status(technique="DHCP Lease Query", clear_section2=True)
     log_hijack("[*] Preparing adapter link for DHCP request...")
 
     # Kill any stale dhclient processes on this interface first

@@ -37,13 +37,13 @@ def resolve_mac_to_ip(target_mac: str, interface: str, target_subnet: str | None
         elif params.get("gateway_ip"):
             target_subnet = f"{params['gateway_ip']}/24"
 
-    set_hijack_status(ip=None, technique="Kernel ARP Cache", clear_section2=True)
+    set_hijack_status(ip=None, mac=mac_clean, technique="Kernel ARP Cache", clear_section2=True)
     log_hijack("[*] Checking kernel neighbor table & /proc/net/arp...")
 
     # Stage 1: Kernel ARP cache check
     ip_found = check_kernel_cache(mac_clean, interface, target_subnet=target_subnet)
     if ip_found:
-        set_hijack_status(ip=ip_found, technique="Kernel ARP Cache")
+        set_hijack_status(ip=ip_found, mac=mac_clean, technique="Kernel ARP Cache")
         log_hijack(f"\033[92m[+] IP found in kernel cache -> {ip_found}\033[0m")
         return ip_found
 
@@ -85,6 +85,6 @@ def resolve_mac_to_ip(target_mac: str, interface: str, target_subnet: str | None
     if ip_found:
         return ip_found
 
-    set_hijack_status(ip=None, technique="Resolution Exhausted")
+    set_hijack_status(ip=None, mac=mac_clean, technique="Resolution Exhausted")
     log_hijack("\033[91m[-] IP resolution exhausted for target MAC\033[0m")
     return None

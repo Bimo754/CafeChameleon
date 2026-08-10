@@ -36,7 +36,7 @@ def hijack(
     High-reliability network connection procedure with streamlined status reporting.
     """
     trace(f"[FEATURE] Initiating host impersonation/hijack on interface {interface} targeting {ip} ({mac})")
-    set_hijack_status(ip=ip, technique="Host Impersonation Sweep", clear_section2=True)
+    set_hijack_status(ip=ip, mac=mac, technique="Host Impersonation Sweep", clear_section2=True)
     log_hijack("[*] Spoofing MAC address and configuring network adapter...")
     active_profile = profile or get_active_profile()
 
@@ -44,7 +44,7 @@ def hijack(
         send_deauth(mac, bssid, interface, channel=channel, security=security, force_deauth=force_deauth)
 
         for attempt in range(1, max_retries + 1):
-            set_hijack_status(ip=ip, technique="Host Impersonation Sweep", clear_section2=True)
+            set_hijack_status(ip=ip, mac=mac, technique="Host Impersonation Sweep", clear_section2=True)
             log_hijack(f"[*] Configuring interface MAC & IP address (Attempt {attempt}/{max_retries})...")
             mac_ok = set_mac_address(interface, mac, profile=active_profile)
             if not mac_ok:

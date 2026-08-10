@@ -17,7 +17,7 @@ def sweep_l3_and_fallback(mac_clean: str, interface: str, target_subnet: str | N
         return None
 
     try:
-        set_hijack_status(ip=None, technique="Subnet L3 Sweep", clear_section2=True)
+        set_hijack_status(ip=None, mac=mac_clean, technique="Subnet L3 Sweep", clear_section2=True)
         log_hijack("[*] Performing L3 subnet sweep to trigger ARP responses...")
         trace(f"[*] Resolving {mac_clean} -> Subnet L3 Sweep...")
         net_obj = ipaddress.ip_network(target_subnet, strict=False)
@@ -53,17 +53,17 @@ def sweep_l3_and_fallback(mac_clean: str, interface: str, target_subnet: str | N
     log_hijack("[*] Re-checking kernel neighbor table after L3 sweep...")
     ip_found = check_kernel_cache(mac_clean, interface, target_subnet=target_subnet)
     if ip_found:
-        set_hijack_status(ip=ip_found, technique="Post-Sweep Cache")
+        set_hijack_status(ip=ip_found, mac=mac_clean, technique="Post-Sweep Cache")
         log_hijack(f"\033[92m[+] IP found in post-sweep kernel cache -> {ip_found}\033[0m")
         return ip_found
 
-    set_hijack_status(ip=None, technique="ARP Scan Fallback", clear_section2=True)
+    set_hijack_status(ip=None, mac=mac_clean, technique="ARP Scan Fallback", clear_section2=True)
     log_hijack("[*] Running Scapy ARP scan fallback...")
     trace(f"[*] Resolving {mac_clean} -> ARP Scan Fallback...")
     hosts = scan_subnet(target_subnet, interface, silent=True)
     for h in hosts:
         if h["mac"].lower() == mac_clean and is_valid_ipv4(h["ip"], subnet_cidr=target_subnet):
-            set_hijack_status(ip=h["ip"], technique="ARP Scan Fallback")
+            set_hijack_status(ip=h["ip"], mac=mac_clean, technique="ARP Scan Fallback")
             log_hijack(f"\033[92m[+] IP resolved via ARP scan fallback -> {h['ip']}\033[0m")
             return h["ip"]
 

@@ -35,7 +35,7 @@ def test_discovered_hosts(unique_hosts: list[dict], interface: str, gw_ip: str, 
             is_gw = (gw_ip and host["ip"] == gw_ip) or (gw_mac and host["mac"].lower() == gw_mac.lower())
             if not is_gw:
                 log_hijack(f"[*] Impersonating host: IP {host['ip']} ({host['mac']})...")
-                set_hijack_status(ip=host['ip'], technique="Simple Impersonation Sweep", clear_section2=True)
+                set_hijack_status(ip=host['ip'], mac=host['mac'], technique="Simple Impersonation Sweep", clear_section2=True)
                 hijack_success = hijack(
                     interface, host['ip'], host['mac'], netmask, broadcast, gw_ip,
                     profile=profile, bssid=None, security=active_sec, force_deauth=force_deauth
@@ -56,15 +56,15 @@ def test_discovered_hosts(unique_hosts: list[dict], interface: str, gw_ip: str, 
                             restore(interface, local_mac, ipmask, broadcast, gw_ip)
                         else:
                             log_plus("Keeping current network config.")
-                        set_hijack_status(ip=None, technique="Idle")
+                        set_hijack_status(ip=None, mac=None, technique="Idle")
                         return has_acc
 
                 time.sleep(0.5)
         except HijackSkipInterrupt:
             log_scan(f"\033[93m[-] Skipping host {host['ip']} (Ctrl+C)...\033[0m")
             log_main(f"\033[93m[-] Skipping host {host['ip']} (Ctrl+C)...\033[0m")
-            set_hijack_status(ip=None, technique="Idle")
+            set_hijack_status(ip=None, mac=None, technique="Idle")
             continue
 
-    set_hijack_status(ip=None, technique="Idle")
+    set_hijack_status(ip=None, mac=None, technique="Idle")
     return False

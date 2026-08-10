@@ -54,6 +54,7 @@ class XtermManager:
         self.main_status = "Idle"
         self.air_mode = "Managed"
         self.hijack_ip = None
+        self.hijack_mac = None
         self.hijack_technique = "Idle"
         self.scan_subnet = "N/A"
         self.scan_hosts_count = 0
@@ -171,7 +172,7 @@ class XtermManager:
             except Exception:
                 pass
 
-    def set_hijack_status(self, ip=_DEFAULT, technique: str | None = None, clear_section2: bool = False) -> None:
+    def set_hijack_status(self, ip=_DEFAULT, mac=_DEFAULT, technique: str | None = None, clear_section2: bool = False) -> None:
         if ip is not _DEFAULT:
             if ip is None or str(ip).strip() == "" or str(ip).strip().lower() in ("not found", "none", "n/a"):
                 self.hijack_ip = None
@@ -184,6 +185,11 @@ class XtermManager:
                         self.hijack_ip = None
                 except Exception:
                     self.hijack_ip = str(ip)
+        if mac is not _DEFAULT:
+            if mac is None or str(mac).strip() == "" or str(mac).strip().lower() in ("not found", "none", "n/a"):
+                self.hijack_mac = None
+            else:
+                self.hijack_mac = str(mac).strip()
         if technique is not None:
             self.hijack_technique = str(technique) if technique else "Idle"
         if not self.enabled or self.closing or "hijack" not in self.active_windows:
@@ -191,7 +197,7 @@ class XtermManager:
         handle = self.handles.get("hijack")
         if handle:
             try:
-                sec = format_hijack_header(self.hijack_ip, self.hijack_technique)
+                sec = format_hijack_header(self.hijack_ip, self.hijack_mac, self.hijack_technique)
                 default_color = self.window_default_colors.get("hijack", "\033[0m")
                 if clear_section2:
                     handle.write(f"\033[2;1H{sec}\n\033[J{default_color}")
@@ -208,7 +214,7 @@ class XtermManager:
         if handle:
             try:
                 default_color = self.window_default_colors.get("hijack", "\033[0m")
-                handle.write(f"\033[5;1H\033[J{default_color}")
+                handle.write(f"\033[6;1H\033[J{default_color}")
                 handle.flush()
             except Exception:
                 pass
@@ -264,7 +270,7 @@ class XtermManager:
                     elif target == "air":
                         handle.write(f"{format_air_header(self.air_mode)}\n")
                     elif target == "hijack":
-                        handle.write(f"{format_hijack_header(self.hijack_ip, self.hijack_technique)}\n")
+                        handle.write(f"{format_hijack_header(self.hijack_ip, self.hijack_mac, self.hijack_technique)}\n")
                     elif target == "scan":
                         handle.write(f"{format_scan_header(self.scan_subnet, self.scan_hosts_count, self.scan_type)}\n")
                     handle.write(f"{default_color}")

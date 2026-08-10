@@ -169,19 +169,38 @@ class TestSignalsAndRestoreCleanup(unittest.TestCase):
         self.assertEqual(mgr.scan_type, "Idle")
 
         # Test hijack status setting, clear, and reset
-        mgr.set_hijack_status(ip="10.0.0.50", technique="ARP Cache Poisoning")
+        mgr.set_hijack_status(ip="10.0.0.50", mac="00:11:22:33:44:55", technique="ARP Cache Poisoning")
         self.assertEqual(mgr.hijack_ip, "10.0.0.50")
+        self.assertEqual(mgr.hijack_mac, "00:11:22:33:44:55")
         self.assertEqual(mgr.hijack_technique, "ARP Cache Poisoning")
 
-        # Partial update technique only preserves IP
+        # Partial update technique only preserves IP and MAC
         mgr.set_hijack_status(technique="Host Impersonation Sweep")
         self.assertEqual(mgr.hijack_ip, "10.0.0.50")
+        self.assertEqual(mgr.hijack_mac, "00:11:22:33:44:55")
         self.assertEqual(mgr.hijack_technique, "Host Impersonation Sweep")
 
-        # Reset IP back to None / Not Found
-        mgr.set_hijack_status(ip=None, technique="Idle")
+        # Reset IP and MAC back to None / Not Found
+        mgr.set_hijack_status(ip=None, mac=None, technique="Idle")
         self.assertIsNone(mgr.hijack_ip)
+        self.assertIsNone(mgr.hijack_mac)
         self.assertEqual(mgr.hijack_technique, "Idle")
+
+        # Test format_hijack_header with and without MAC
+        from cafe_chameleon.ui.xterm.headers import format_hijack_header
+        hdr = format_hijack_header("192.168.1.100", "AA:BB:CC:DD:EE:FF", "Host Impersonation Sweep")
+        lines = hdr.split("\n")
+        self.assertEqual(len(lines), 4)
+        self.assertIn("\033[1;37mIP:\033[0m \033[1;32m192.168.1.100\033[0m", lines[0])
+        self.assertIn("\033[1;37mMac:\033[0m \033[1;33mAA:BB:CC:DD:EE:FF\033[0m", lines[1])
+        self.assertIn("\033[1;37mTechnique:\033[0m \033[1;33mHost Impersonation Sweep\033[0m", lines[2])
+
+        hdr_none = format_hijack_header(None, None, "Idle")
+        lines_none = hdr_none.split("\n")
+        self.assertEqual(len(lines_none), 4)
+        self.assertIn("\033[1;37mIP:\033[0m \033[1;31mNot Found\033[0m", lines_none[0])
+        self.assertIn("\033[1;37mMac:\033[0m \033[1;31mNot Found\033[0m", lines_none[1])
+        self.assertIn("\033[1;37mTechnique:\033[0m \033[1;33mIdle\033[0m", lines_none[2])
 
 
 if __name__ == "__main__":
