@@ -6,11 +6,45 @@ from cafe_chameleon.ui.console import log_air
 from cafe_chameleon.scanners.resolver.kernel_cache import is_valid_ipv4
 
 
-def parse_air_packet(pkt, target_bssids_set: set[str], ignore_macs: set[str], bssid_to_clients: dict, BOOTP=None, DHCP=None):
+def extract_packet_rssi(pkt) -> int | None:
+    """Extracts dBm antenna signal (RSSI) from RadioTap layer if present."""
+    try:
+        if hasattr(pkt, "fields") and "dBm_AntSignal" in pkt.fields and pkt.fields["dBm_AntSignal"] is not None:
+            val = int(pkt.fields["dBm_AntSignal"])
+            return (val - 256) if val > 0 else val
+        if hasattr(pkt, "dBm_AntSignal") and pkt.dBm_AntSignal is not None:
+            val = int(pkt.dBm_AntSignal)
+            return (val - 256) if val > 0 else val
+        if pkt.haslayer("RadioTap"):
+            rt = pkt.getlayer("RadioTap")
+            if rt and hasattr(rt, "fields") and "dBm_AntSignal" in rt.fields and rt.fields["dBm_AntSignal"] is not None:
+                val = int(rt.fields["dBm_AntSignal"])
+                return (val - 256) if val > 0 else val
+            if rt and hasattr(rt, "dBm_AntSignal") and rt.dBm_AntSignal is not None:
+                val = int(rt.dBm_AntSignal)
+                return (val - 256) if val > 0 else val
+    except Exception:
+        pass
+    return None
+
+
+def parse_air_packet(
+    pkt,
+    target_bssids_set: set[str],
+    ignore_macs: set[str],
+    bssid_to_clients: dict,
+    BOOTP=None,
+    DHCP=None,
+    client_metadata: dict | None = None
+):
     """
     Parses a single Scapy 802.11 frame, extracts IP/MAC information,
     and updates bssid_to_clients dict. Correctly parses local client IPs
     and ignores public internet IPs (e.g., Google, Facebook, Cloudflare).
+
+    Guarantees that each unique client station is bound to at most ONE
+    most-active BSSID, prioritizing confirmed Data frames over generic probes,
+    and using RadioTap RSSI as a signal-strength tiebreaker.
     """
     try:
         from scapy.all import Dot11, IP, ARP
@@ -191,10 +225,12 @@ def parse_air_packet(pkt, target_bssids_set: set[str], ignore_macs: set[str], bs
         matched_bssid = None
         client_candidate = None
         subtype = getattr(dot11, "subtype", None)
+        frame_priority = 1  # 3: Data/IP Traffic, 2: Direct Assoc/Auth, 1: Probe/Mgmt/Control
 
         # Frame Dissection & Client Mapping
         if to_ds and not from_ds:
             # Client -> AP (Uplink Data)
+            frame_priority = 3
             if addr1 and addr1 in target_bssids_set:
                 matched_bssid = addr1
                 client_candidate = bootp_mac or addr2
@@ -203,6 +239,7 @@ def parse_air_packet(pkt, target_bssids_set: set[str], ignore_macs: set[str], bs
                 client_candidate = bootp_mac or addr2
         elif from_ds and not to_ds:
             # AP -> Client (Downlink Data)
+            frame_priority = 3
             if addr2 and addr2 in target_bssids_set:
                 matched_bssid = addr2
                 client_candidate = bootp_mac or addr1
@@ -211,6 +248,7 @@ def parse_air_packet(pkt, target_bssids_set: set[str], ignore_macs: set[str], bs
                 client_candidate = bootp_mac or addr1
         elif to_ds and from_ds:
             # WDS / Mesh frame
+            frame_priority = 3
             if addr1 in target_bssids_set:
                 matched_bssid = addr1
                 client_candidate = bootp_mac or addr4 or addr2
@@ -221,25 +259,24 @@ def parse_air_packet(pkt, target_bssids_set: set[str], ignore_macs: set[str], bs
             # not to_ds and not from_ds (Management, Control, or Direct / IBSS Data)
             if dot11.type == 0:
                 # 802.11 Management frames
-                # Subtype 0: Assoc Req (addr1=BSSID, addr2=Client, addr3=BSSID)
-                # Subtype 1: Assoc Resp (addr1=Client, addr2=BSSID, addr3=BSSID)
-                # Subtype 2: Reassoc Req (addr1=BSSID, addr2=Client, addr3=BSSID)
-                # Subtype 3: Reassoc Resp (addr1=Client, addr2=BSSID, addr3=BSSID)
-                # Subtype 4: Probe Req (addr1=DA/Broadcast, addr2=Client, addr3=BSSID/Broadcast)
-                # Subtype 5: Probe Resp (addr1=Client, addr2=BSSID, addr3=BSSID) -> HIGH VALUE FOR FAR CLIENTS!
-                # Subtype 10: Disassoc (addr1=RA, addr2=TA, addr3=BSSID)
-                # Subtype 11: Auth (addr1=RA, addr2=TA, addr3=BSSID)
-                # Subtype 12: Deauth (addr1=RA, addr2=TA, addr3=BSSID)
-                # Subtype 13: Action (addr1=RA, addr2=TA, addr3=BSSID)
                 if subtype in (0, 2):
+                    frame_priority = 2  # Assoc / Reassoc Req
                     if addr1 and addr1 in target_bssids_set:
                         matched_bssid = addr1
                         client_candidate = bootp_mac or addr2
                     elif addr3 and addr3 in target_bssids_set:
                         matched_bssid = addr3
                         client_candidate = bootp_mac or addr2
-                elif subtype in (1, 3, 5):
-                    # AP transmitting to Client
+                elif subtype in (1, 3):
+                    frame_priority = 2  # Assoc / Reassoc Resp
+                    if addr2 and addr2 in target_bssids_set:
+                        matched_bssid = addr2
+                        client_candidate = bootp_mac or addr1
+                    elif addr3 and addr3 in target_bssids_set:
+                        matched_bssid = addr3
+                        client_candidate = bootp_mac or addr1
+                elif subtype == 5:
+                    frame_priority = 1  # Probe Resp
                     if addr2 and addr2 in target_bssids_set:
                         matched_bssid = addr2
                         client_candidate = bootp_mac or addr1
@@ -247,7 +284,7 @@ def parse_air_packet(pkt, target_bssids_set: set[str], ignore_macs: set[str], bs
                         matched_bssid = addr3
                         client_candidate = bootp_mac or addr1
                 elif subtype == 4:
-                    # Client transmitting Probe Request directed to specific target BSSID
+                    frame_priority = 1  # Probe Req
                     if addr1 and addr1 in target_bssids_set:
                         matched_bssid = addr1
                         client_candidate = bootp_mac or addr2
@@ -256,6 +293,7 @@ def parse_air_packet(pkt, target_bssids_set: set[str], ignore_macs: set[str], bs
                         client_candidate = bootp_mac or addr2
                 elif subtype in (10, 11, 12, 13):
                     # Bi-directional management frames (Auth, Deauth, Disassoc, Action)
+                    frame_priority = 2 if subtype == 11 else 1
                     if addr1 and addr1 in target_bssids_set:
                         matched_bssid = addr1
                         client_candidate = bootp_mac or addr2
@@ -264,7 +302,6 @@ def parse_air_packet(pkt, target_bssids_set: set[str], ignore_macs: set[str], bs
                         client_candidate = bootp_mac or addr1
                     elif addr3 and addr3 in target_bssids_set:
                         matched_bssid = addr3
-                        # If addr3 is BSSID, client is whichever of addr1/addr2 is not the BSSID
                         if addr1 and addr1 != addr3:
                             client_candidate = bootp_mac or addr1
                         elif addr2 and addr2 != addr3:
@@ -272,10 +309,7 @@ def parse_air_packet(pkt, target_bssids_set: set[str], ignore_macs: set[str], bs
 
             elif dot11.type == 1:
                 # 802.11 Control frames
-                # Subtype 8: Block ACK Request (addr1=RA, addr2=TA)
-                # Subtype 10: PS-Poll (addr1=BSSID/RA, addr2=Client/TA)
-                # Subtype 11: RTS (addr1=BSSID/RA, addr2=Client/TA)
-                # Subtype 12: CTS (addr1=RA)
+                frame_priority = 1
                 if subtype in (8, 10, 11):
                     if addr1 and addr1 in target_bssids_set:
                         matched_bssid = addr1
@@ -286,6 +320,7 @@ def parse_air_packet(pkt, target_bssids_set: set[str], ignore_macs: set[str], bs
 
             elif dot11.type == 2:
                 # Direct / IBSS / Null Data
+                frame_priority = 3
                 if addr1 and addr1 in target_bssids_set:
                     matched_bssid = addr1
                     client_candidate = bootp_mac or addr2
@@ -296,8 +331,14 @@ def parse_air_packet(pkt, target_bssids_set: set[str], ignore_macs: set[str], bs
                     matched_bssid = addr3
                     client_candidate = bootp_mac or (addr2 if addr2 and addr2 != addr3 else addr1)
 
+        # Elevate priority to 3 if a valid client IP was parsed from payload
+        if client_ip:
+            frame_priority = 3
+
         if matched_bssid and client_candidate:
             client_candidate = client_candidate.lower()
+            matched_bssid = matched_bssid.lower()
+
             if (
                 client_candidate != matched_bssid
                 and client_candidate not in ignore_macs
@@ -329,10 +370,112 @@ def parse_air_packet(pkt, target_bssids_set: set[str], ignore_macs: set[str], bs
                     is_invalid = True
 
                 if not is_invalid:
-                    existing_ip = bssid_to_clients[matched_bssid].get(client_candidate)
-                    if client_candidate not in bssid_to_clients[matched_bssid] or (not existing_ip and client_ip):
+                    curr_rssi = extract_packet_rssi(pkt)
+
+                    # Ensure target BSSID bucket exists
+                    if matched_bssid not in bssid_to_clients:
+                        bssid_to_clients[matched_bssid] = {}
+
+                    # Locate any existing BSSID association for this client
+                    old_bssid = None
+                    for b_cand, c_dict in bssid_to_clients.items():
+                        if client_candidate in c_dict:
+                            old_bssid = b_cand
+                            break
+
+                    if old_bssid is None:
+                        # First time seeing this client station
                         bssid_to_clients[matched_bssid][client_candidate] = client_ip
+                        if client_metadata is not None:
+                            client_metadata[client_candidate] = {
+                                "bssid": matched_bssid,
+                                "priority": frame_priority,
+                                "rssi": curr_rssi,
+                                "ip": client_ip,
+                                "data_count": 1 if frame_priority == 3 else 0,
+                                "total_count": 1
+                            }
                         ip_str = f" ({client_ip})" if client_ip else ""
                         log_air(f"  [+] Target Client: {client_candidate}{ip_str} on BSSID {matched_bssid}")
+
+                    elif old_bssid == matched_bssid:
+                        # Client seen again on its currently bound BSSID
+                        existing_ip = bssid_to_clients[matched_bssid].get(client_candidate)
+                        if client_ip and not existing_ip:
+                            bssid_to_clients[matched_bssid][client_candidate] = client_ip
+
+                        if client_metadata is not None:
+                            meta = client_metadata.setdefault(client_candidate, {
+                                "bssid": matched_bssid,
+                                "priority": frame_priority,
+                                "rssi": curr_rssi,
+                                "ip": client_ip or existing_ip,
+                                "data_count": 0,
+                                "total_count": 0
+                            })
+                            meta["priority"] = max(meta.get("priority", 1), frame_priority)
+                            if curr_rssi is not None:
+                                prev_rssi = meta.get("rssi")
+                                meta["rssi"] = curr_rssi if prev_rssi is None else max(prev_rssi, curr_rssi)
+                            if client_ip:
+                                meta["ip"] = client_ip
+                            if frame_priority == 3:
+                                meta["data_count"] = meta.get("data_count", 0) + 1
+                            meta["total_count"] = meta.get("total_count", 0) + 1
+
+                    else:
+                        # Client was previously bound to old_bssid, but now detected on matched_bssid
+                        old_prio = 1
+                        old_rssi = None
+                        old_data_count = 0
+                        old_ip = bssid_to_clients[old_bssid].get(client_candidate)
+
+                        if client_metadata is not None and client_candidate in client_metadata:
+                            meta = client_metadata[client_candidate]
+                            old_prio = meta.get("priority", 1)
+                            old_rssi = meta.get("rssi")
+                            old_data_count = meta.get("data_count", 0)
+                            if not old_ip:
+                                old_ip = meta.get("ip")
+
+                        # Re-association decision rule:
+                        # 1. New frame has strictly higher priority (e.g. Data Frame vs Probe Request)
+                        # 2. Equal priority, but new frame has significantly stronger RSSI (> 3 dBm) or old had no RSSI measurement
+                        # 3. Equal priority == 3 (Data), but new BSSID has data activity while old had none
+                        should_switch = False
+                        if frame_priority > old_prio:
+                            should_switch = True
+                        elif frame_priority == old_prio:
+                            if curr_rssi is not None and old_rssi is not None:
+                                if curr_rssi > (old_rssi + 3):
+                                    should_switch = True
+                            elif curr_rssi is not None and old_rssi is None:
+                                should_switch = True
+                            elif frame_priority == 3 and old_data_count == 0:
+                                should_switch = True
+
+                        if should_switch:
+                            # Migrate client cleanly from old_bssid to matched_bssid
+                            bssid_to_clients[old_bssid].pop(client_candidate, None)
+                            best_ip = client_ip or old_ip
+                            bssid_to_clients[matched_bssid][client_candidate] = best_ip
+
+                            if client_metadata is not None:
+                                client_metadata[client_candidate] = {
+                                    "bssid": matched_bssid,
+                                    "priority": frame_priority,
+                                    "rssi": curr_rssi,
+                                    "ip": best_ip,
+                                    "data_count": (1 if frame_priority == 3 else 0),
+                                    "total_count": (meta.get("total_count", 0) + 1) if (client_metadata and client_candidate in client_metadata) else 1
+                                }
+                            ip_str = f" ({best_ip})" if best_ip else ""
+                            log_air(f"  [+] Target Client: {client_candidate}{ip_str} rebound to BSSID {matched_bssid} (higher priority/RSSI)")
+                        else:
+                            # Retain binding on old_bssid, but update IP if newly discovered
+                            if client_ip and not old_ip:
+                                bssid_to_clients[old_bssid][client_candidate] = client_ip
+                                if client_metadata is not None and client_candidate in client_metadata:
+                                    client_metadata[client_candidate]["ip"] = client_ip
     except Exception:
         pass

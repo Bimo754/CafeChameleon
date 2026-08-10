@@ -225,8 +225,18 @@ def sniff_air_clients(
 
         log_air(f"[*] Sniffing frames on {mon_iface} ({effective_duration}s)...")
 
+        client_metadata = {}
+
         def air_packet_callback(pkt):
-            parse_air_packet(pkt, target_bssids_set, ignore_macs, bssid_to_clients, BOOTP=BOOTP, DHCP=DHCP)
+            parse_air_packet(
+                pkt,
+                target_bssids_set,
+                ignore_macs,
+                bssid_to_clients,
+                BOOTP=BOOTP,
+                DHCP=DHCP,
+                client_metadata=client_metadata
+            )
 
         def on_channel_hop(ch: int):
             if stimulator:
