@@ -176,6 +176,9 @@ python3 main.py wifi -a
 
 # Reset interface MAC address to permanent factory default
 sudo python3 main.py wifi -r
+
+# Release & unlock interface (teardown monitor mode, stop lingering dhclient, restore NetworkManager)
+sudo python3 main.py wifi --release
 ```
 
 ### Running Test Suite

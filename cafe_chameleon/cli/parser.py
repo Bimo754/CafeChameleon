@@ -170,6 +170,10 @@ def parse_arguments():
         "-r", "--reset-mac", nargs="*", metavar="PROFILE",
         help="Reset MAC address to default"
     )
+    wifi_mut.add_argument(
+        "--release", nargs="*", metavar="INTERFACE",
+        help="Release and unlock wireless interface (stop monitor mode, dhclient, and restore NetworkManager)"
+    )
     wifi_p.set_defaults(func=run_wifi)
 
     return parser.parse_args()
