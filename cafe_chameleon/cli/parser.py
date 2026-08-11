@@ -145,6 +145,7 @@ def parse_arguments():
     a_opts.add_argument("-m", "--original-mac", action="store_true", dest="original_mac", help="Use hardware MAC (do not randomize)")
     a_opts.add_argument("--force", action="store_true", help="Force scan even if internet is active")
     a_opts.add_argument("--force-deauth", action="store_true", dest="force_deauth", help="Force 802.11 deauth even on open networks")
+    a_opts.add_argument("--share", nargs=2, metavar=("NAME", "PASSWORD"), dest="share", help="Automatically share Wi-Fi hotspot upon successful session hijack")
     a_opts.add_argument("--no-xterm", action="store_true", help="Disable multi-window UI")
     aggressive_p.set_defaults(func=run_aggressive)
 
@@ -184,6 +185,10 @@ def parse_arguments():
     wifi_mut.add_argument(
         "-c", "--reconnect", nargs="*", metavar="MODE",
         help="Reconnect to already connected BSSID with active MAC & IP (optional: 'auto' for continuous reconnect)"
+    )
+    wifi_mut.add_argument(
+        "--share", nargs=2, metavar=("NAME", "PASSWORD"),
+        help="Share Wi-Fi connection via AP hotspot (create_ap)"
     )
     wifi_p.set_defaults(func=run_wifi)
 

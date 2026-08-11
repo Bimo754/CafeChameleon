@@ -208,5 +208,76 @@ class TestWifiReconnect(unittest.TestCase):
         self.assertEqual(args.reconnect, ["auto"])
 
 
+    @patch("cafe_chameleon.network.nmcli.reconnect.get_connected_bssid")
+    @patch("cafe_chameleon.network.nmcli.reconnect.wait_for_carrier")
+    @patch("cafe_chameleon.network.nmcli.reconnect._run")
+    def test_perform_reconnect_retry_on_timeout_124(
+        self,
+        mock_run,
+        mock_wait_carrier,
+        mock_conn_bssid
+    ):
+        mock_run.side_effect = [
+            (0, ""), # modify bssid
+            (0, ""), # modify cloned-mac
+            (124, ""), # timeout on connection up attempt 1
+            (0, ""), # wifi rescan
+            (0, "Connection successfully activated"), # up retry
+            (0, ""), # flush dev
+        ]
+        mock_wait_carrier.return_value = True
+        mock_conn_bssid.return_value = "00:11:22:33:44:55"
+
+        result = perform_reconnect(
+            profile="MyHotspot",
+            interface="wlan0",
+            bssid="00:11:22:33:44:55",
+            mac="aa:bb:cc:dd:ee:ff",
+            local_ip=None,
+            netmask="24",
+            broadcast="255.255.255.255",
+            gateway="",
+            timeout=5.0,
+            max_retries=2
+        )
+        self.assertTrue(result)
+        mock_run.assert_any_call(["nmcli", "device", "wifi", "rescan"], debug=False)
+
+    @patch("cafe_chameleon.network.nmcli.reconnect.get_connected_bssid")
+    @patch("cafe_chameleon.network.nmcli.reconnect.wait_for_carrier")
+    @patch("cafe_chameleon.network.nmcli.reconnect._run")
+    def test_perform_reconnect_retry_on_network_activation_failed(
+        self,
+        mock_run,
+        mock_wait_carrier,
+        mock_conn_bssid
+    ):
+        mock_run.side_effect = [
+            (0, ""), # modify bssid
+            (0, ""), # modify cloned-mac
+            (1, "Error: Connection activation failed: (5) IP configuration could not be reserved"), # activation failed
+            (0, ""), # wifi rescan
+            (0, "Connection successfully activated"), # up retry
+            (0, ""), # flush dev
+        ]
+        mock_wait_carrier.return_value = True
+        mock_conn_bssid.return_value = "00:11:22:33:44:55"
+
+        result = perform_reconnect(
+            profile="MyHotspot",
+            interface="wlan0",
+            bssid="00:11:22:33:44:55",
+            mac="aa:bb:cc:dd:ee:ff",
+            local_ip=None,
+            netmask="24",
+            broadcast="255.255.255.255",
+            gateway="",
+            timeout=5.0,
+            max_retries=2
+        )
+        self.assertTrue(result)
+        mock_run.assert_any_call(["nmcli", "device", "wifi", "rescan"], debug=False)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -155,11 +155,16 @@ def perform_reconnect(
         if attempt > 1:
             log_wait(f"Retry {attempt}/{max_retries} -> Reconnecting to {bssid}...")
 
-        log_wait(f"Bringing up connection '{profile}' (timeout: {int(timeout)}s)...")
+        log_wait(f"Bringing up connection '{profile}' (5s timeout)...")
         rc_up, out_up = _run(["nmcli", "connection", "up", profile], timeout=timeout)
 
-        if rc_up != 0 or "could not be found" in out_up.lower():
-            log_wait("NetworkManager cache miss / connection timeout. Rescanning Wi-Fi...")
+        if rc_up == 124:
+            log_warning("nmcli connection up timed out after 5s (process terminated). Rescanning Wi-Fi...")
+            _run(["nmcli", "device", "wifi", "rescan"], debug=False)
+            time.sleep(0.5)
+            rc_up, out_up = _run(["nmcli", "connection", "up", profile], timeout=timeout)
+        elif rc_up != 0 or "could not be found" in out_up.lower() or "activation failed" in out_up.lower():
+            log_warning(f"Connection attempt failed ({'activation failed' if 'activation failed' in out_up.lower() else 'cache miss'}). Rescanning Wi-Fi...")
             _run(["nmcli", "device", "wifi", "rescan"], debug=False)
             time.sleep(0.5)
             rc_up, out_up = _run(["nmcli", "connection", "up", profile], timeout=timeout)

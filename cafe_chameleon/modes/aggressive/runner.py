@@ -42,6 +42,16 @@ from cafe_chameleon.scanners.air import (
 
 from .selector import display_and_select_bssid
 from .air_target_handler import filter_valid_air_clients, test_air_client_targets
+from cafe_chameleon.network.hotspot import share_wifi_hotspot
+
+
+def handle_auto_share_if_requested(args, interface: str) -> None:
+    """Automatically launches Wi-Fi Hotspot sharing if --share was passed to aggressive mode."""
+    share_val = getattr(args, "share", None)
+    if share_val:
+        hotspot_name, hotspot_pass = share_val
+        log_main(f"[+] Launching Wi-Fi Hotspot sharing (--share '{hotspot_name}')...")
+        share_wifi_hotspot(hotspot_name=hotspot_name, password=hotspot_pass, interface=interface)
 
 
 def run_scan_wrapper(args, quiet_header=False):
@@ -100,6 +110,7 @@ def run_aggressive(args) -> bool:
     if has_internet():
         if not getattr(args, "force", False):
             log_main("[+] Internet online.")
+            handle_auto_share_if_requested(args, interface)
             return True
         else:
             log_main("[!] Internet online (--force enabled). Continuing exploration...")
@@ -209,6 +220,7 @@ def run_aggressive(args) -> bool:
             if has_internet():
                 log_main(f"\033[92m[+] SUCCESS! Internet verified on {target_bssid}!\033[0m")
                 if not getattr(args, "force", False):
+                    handle_auto_share_if_requested(args, interface)
                     return True
                 else:
                     log_main(f"[!] --force enabled. Continuing attack on {target_bssid}...")
@@ -226,6 +238,7 @@ def run_aggressive(args) -> bool:
                     new_air_clients, interface, target_bssid, chan, profile, tried_macs, auto_params, args, security=target_sec, air_clients_map=air_clients_map
                 )
                 if stop_early or (success_air and not getattr(args, "force", False)):
+                    handle_auto_share_if_requested(args, interface)
                     return True
 
             set_hijack_status(ip=None, mac=None, technique="Idle")
@@ -249,6 +262,7 @@ def run_aggressive(args) -> bool:
                     log_plus(f"SUCCESS! Internet access granted via {target_bssid}!")
                     log_main(f"\033[92m[+] SUCCESS! Internet access granted via {target_bssid}!\033[0m")
                     if not getattr(args, "force", False):
+                        handle_auto_share_if_requested(args, interface)
                         return True
 
             log_warning(f"No internet on BSSID {target_bssid}. Moving next...")

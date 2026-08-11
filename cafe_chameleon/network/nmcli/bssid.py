@@ -141,13 +141,13 @@ def lock_bssid(target_bssid: str | None = None, profile: str | None = None, max_
             log_warning(f"Attempt {attempt}/{max_retries}: Failed setting BSSID property for '{profile}'.")
             continue
 
-        log_wait(f"Reconnecting profile '{profile}'...")
-        rc_up, out_up = _run(["nmcli", "connection", "up", profile], timeout=15.0)
-        if rc_up != 0 or "could not be found" in out_up.lower():
-            log_wait("NetworkManager cache miss. Rescanning & reconnecting...")
+        log_wait(f"Reconnecting profile '{profile}' (5s timeout)...")
+        rc_up, out_up = _run(["nmcli", "connection", "up", profile], timeout=5.0)
+        if rc_up != 0 or "could not be found" in out_up.lower() or "activation failed" in out_up.lower():
+            log_wait("NetworkManager cache miss / timeout / activation failed. Rescanning & reconnecting...")
             _run(["nmcli", "device", "wifi", "rescan"], debug=False)
-            time.sleep(1.0)
-            _run(["nmcli", "connection", "up", profile], timeout=15.0)
+            time.sleep(0.5)
+            _run(["nmcli", "connection", "up", profile], timeout=5.0)
 
         log_wait(f"Verifying lock to BSSID {target_bssid}...")
         verified = False
