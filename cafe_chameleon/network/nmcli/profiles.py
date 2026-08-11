@@ -8,8 +8,8 @@ from cafe_chameleon.utils.process import _run
 def get_active_profile() -> str:
     rc, out = _run(["nmcli", "-t", "-f", "NAME,TYPE", "connection", "show", "--active"])
     for line in out.splitlines():
-        if line.endswith(":802-11-wireless"):
-            return line.split(":")[0]
+        if line.endswith(":802-11-wireless") or line.endswith(":wifi"):
+            return line.rsplit(":", 1)[0]
 
     rc, out = _run(["nmcli", "-t", "-f", "GENERAL.CONNECTION", "dev", "show"])
     for line in out.splitlines():
