@@ -6,7 +6,7 @@ import sys
 
 from cafe_chameleon.ui.console import log_minus
 from cafe_chameleon.network.mac import is_valid_mac
-from cafe_chameleon.network.nmcli import show_status, lock_bssid, restore_auto, reset_mac, release_interface, change_mac
+from cafe_chameleon.network.nmcli import show_status, lock_bssid, restore_auto, reset_mac, release_interface, change_mac, reconnect_wifi
 
 
 def run_wifi(args) -> None:
@@ -118,6 +118,14 @@ def run_wifi(args) -> None:
 
         if not release_interface(interface=iface, profile=prof):
             sys.exit(1)
+    elif getattr(args, "reconnect", None) is not None:
+        rec_args = args.reconnect
+        auto_loop = any(a.lower() == "auto" for a in rec_args)
+        prof_parts = [a for a in rec_args if a.lower() != "auto"]
+        profile = " ".join(prof_parts).strip() if prof_parts else None
+
+        if not reconnect_wifi(profile=profile, auto_loop=auto_loop):
+            sys.exit(1)
     else:
-        log_minus("No wifi action specified. Use --status, --lock, --auto, --mac, --reset-mac, or --release.")
+        log_minus("No wifi action specified. Use --status, --lock, --auto, --mac, --reset-mac, --release, or --reconnect.")
         sys.exit(1)

@@ -70,7 +70,7 @@ CafeChameleon provides a structured testbed to evaluate these attack surfaces an
 * **Fast Impersonation (`--any-ip`)**: Connects directly with local subnet IP, skipping multi-stage IP resolution probes and DHCP queries for instant MAC impersonation testing.
 * **Interactive & Range Selection (`-s` / `--select-bssid`)**: Allows manual targeting of specific Access Points via interactive prompts or numeric range lists.
 * **Security-Aware Deauth Protection**: Inspects AP encryption status; skips 802.11 deauthentication on open networks unless explicitly overridden with `--force-deauth`.
-* **802.11 Monitor Mode Telemetry (`--air`)**: Captures real-time client association frames, signal metrics, and probe requests.
+* **802.11 Monitor Mode Telemetry (`--air` / `--air-only`)**: Captures real-time client association frames, signal metrics, and probe requests. Use `--air-only` to skip subnet scanning across BSSIDs and test over-the-air discovered clients exclusively.
 
 ### Wi-Fi Controller (`wifi`)
 * **BSSID Locking (`-l` / `--lock`)**: Binds NetworkManager connection profiles to a designated physical BSSID.
@@ -165,6 +165,9 @@ sudo python3 main.py aggressive -s
 
 # Set BSSID density threshold for signal-weighted channel hopping
 sudo python3 main.py aggressive --air -b 15
+
+# Over-the-air client discovery only (skip all subnet scanning across BSSIDs)
+sudo python3 main.py aggressive --air-only 30
 ```
 
 ### Wi-Fi Profile & Hardware Management
@@ -192,6 +195,12 @@ sudo python3 main.py wifi -r
 
 # Release & unlock interface (teardown monitor mode, stop lingering dhclient, restore NetworkManager)
 sudo python3 main.py wifi --release
+
+# Reconnect to already connected BSSID with active MAC and IP address
+sudo python3 main.py wifi --reconnect
+
+# Continuously auto-reconnect to BSSID whenever connection drops or disconnects
+sudo python3 main.py wifi --reconnect auto
 ```
 
 ### Running Test Suite

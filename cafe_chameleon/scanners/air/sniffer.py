@@ -114,9 +114,13 @@ def should_weight_channels_by_signal(bssid_count: int, threshold: int = DEFAULT_
     - If threshold is 0: force weighted behavior regardless of BSSID count.
     - If threshold > 0: only apply when BSSID count > threshold.
     """
-    if threshold == 0:
+    try:
+        t_val = int(threshold)
+    except (ValueError, TypeError):
+        t_val = DEFAULT_BSSID_THRESHOLD
+    if t_val == 0:
         return True
-    return bssid_count > threshold
+    return bssid_count > t_val
 
 
 def calculate_channel_dwell_times(
@@ -209,6 +213,7 @@ def sniff_air_clients(
     ignore_macs.update(target_bssids_set)
 
     hopper = None
+    client_metadata = {}
     try:
         mon_iface = set_monitor_mode(interface)
 

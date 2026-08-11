@@ -139,6 +139,7 @@ def parse_arguments():
     a_opts.add_argument("--any-ip", action="store_true", dest="any_ip", help="Connect with any IP to the BSSID (skip target IP resolution probes)")
     a_opts.add_argument("-b", "--threshold", type=int, default=10, dest="threshold", metavar="NUM", help="BSSID count threshold to prioritize channels with stronger signal [default: 10]")
     a_opts.add_argument("--air", nargs="?", const=-1, type=int, default=None, metavar="SECS", help="Enable 802.11 monitor capture")
+    a_opts.add_argument("--air-only", nargs="?", const=-1, type=int, default=None, dest="air_only", metavar="SECS", help="Enable 802.11 monitor capture only (skip subnet scanning)")
     a_opts.add_argument("--passive-only", action="store_true", dest="passive_only", help="Disable active 802.11 packet stimulation (pure passive listening)")
     a_opts.add_argument("-i", "--interface", required=False, metavar="IFACE", help="Network interface [default: auto]")
     a_opts.add_argument("-m", "--original-mac", action="store_true", dest="original_mac", help="Use hardware MAC (do not randomize)")
@@ -179,6 +180,10 @@ def parse_arguments():
     wifi_mut.add_argument(
         "--release", nargs="*", metavar="INTERFACE",
         help="Release and unlock wireless interface (stop monitor mode, dhclient, and restore NetworkManager)"
+    )
+    wifi_mut.add_argument(
+        "-c", "--reconnect", nargs="*", metavar="MODE",
+        help="Reconnect to already connected BSSID with active MAC & IP (optional: 'auto' for continuous reconnect)"
     )
     wifi_p.set_defaults(func=run_wifi)
 
