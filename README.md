@@ -172,6 +172,12 @@ sudo python3 main.py aggressive --air-only 30
 
 ### Wi-Fi Profile & Hardware Management
 ```bash
+# Scan and display all nearby Wi-Fi networks and BSSIDs with formatted stats
+python3 main.py wifi --scan
+
+# Scan and filter nearby BSSIDs matching a specific SSID name
+python3 main.py wifi --scan "TargetNetwork"
+
 # Inspect current connection profile, BSSID lock, and MAC state
 python3 main.py wifi -s
 

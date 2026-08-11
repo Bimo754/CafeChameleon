@@ -62,6 +62,9 @@ class BSSIDTarget:
     chan: str = "1"
     security: str = ""
     active: bool = False
+    bars: str = ""
+    mode: str = ""
+    rate: str = ""
 
     @property
     def is_open(self) -> bool:
@@ -97,7 +100,10 @@ class BSSIDTarget:
             "signal": self.signal,
             "chan": self.chan,
             "security": self.security,
-            "active": self.active
+            "active": self.active,
+            "bars": self.bars,
+            "mode": self.mode,
+            "rate": self.rate
         }
 
 

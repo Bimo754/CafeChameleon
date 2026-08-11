@@ -15,6 +15,88 @@ DIGIT_REGEX = re.compile(r"[^\d]")
 CONNECTED_MAC_REGEX = re.compile(r"Connected to\s+([0-9a-fa-f:]+)", re.IGNORECASE)
 
 
+def scan_nearby_wifi_networks(target_ssid: str | None = None, rescan: bool = True) -> list[BSSIDTarget]:
+    """Scans and retrieves available nearby Wi-Fi BSSIDs and AP properties via nmcli.
+
+    If target_ssid is specified, filters results to matching SSIDs (case-insensitive).
+    """
+    trace(f"[FEATURE] Scanning nearby Wi-Fi networks (target_ssid={target_ssid}, rescan={rescan})")
+    if rescan:
+        log_step("Scanning nearby Wi-Fi networks...")
+        log_wait("Triggering Wi-Fi rescan...")
+        _run(["nmcli", "device", "wifi", "rescan"])
+
+    # Query comprehensive property set from nmcli
+    rc, out = _run(["nmcli", "-t", "-f", "BSSID,SSID,SIGNAL,CHAN,SECURITY,ACTIVE,BARS,MODE,RATE", "dev", "wifi", "list"])
+    if rc != 0 or not out.strip():
+        rc, out = _run(["nmcli", "-t", "-f", "BSSID,SSID,SIGNAL,CHAN,SECURITY,ACTIVE", "dev", "wifi", "list"])
+
+    results = []
+    seen = set()
+    for line in out.splitlines():
+        if not line:
+            continue
+        unescaped = line.replace(r"\:", "\x00")
+        parts = unescaped.split(":")
+        if len(parts) >= 6:
+            bssid = parts[0].replace("\x00", ":").strip()
+            ssid = parts[1].replace("\x00", ":").strip()
+            signal = parts[2].replace("\x00", ":").strip()
+            chan = parts[3].replace("\x00", ":").strip()
+            security = parts[4].replace("\x00", ":").strip()
+            active = parts[5].replace("\x00", ":").strip().lower() in ("yes", "*", "true")
+            bars = parts[6].replace("\x00", ":").strip() if len(parts) >= 7 else ""
+            mode = parts[7].replace("\x00", ":").strip() if len(parts) >= 8 else ""
+            rate = parts[8].replace("\x00", ":").strip() if len(parts) >= 9 else ""
+
+            if target_ssid:
+                if ssid.lower() != target_ssid.lower() and target_ssid.lower() not in ssid.lower():
+                    continue
+
+            if bssid and bssid not in seen:
+                seen.add(bssid)
+                results.append(BSSIDTarget(
+                    bssid=bssid,
+                    ssid=ssid,
+                    signal=signal,
+                    chan=chan,
+                    security=security,
+                    active=active,
+                    bars=bars,
+                    mode=mode,
+                    rate=rate
+                ))
+        elif len(parts) == 5:
+            bssid = parts[0].replace("\x00", ":").strip()
+            ssid = parts[1].replace("\x00", ":").strip()
+            signal = parts[2].replace("\x00", ":").strip()
+            chan = parts[3].replace("\x00", ":").strip()
+            security = ""
+            active = parts[4].replace("\x00", ":").strip().lower() in ("yes", "*", "true")
+
+            if target_ssid:
+                if ssid.lower() != target_ssid.lower() and target_ssid.lower() not in ssid.lower():
+                    continue
+
+            if bssid and bssid not in seen:
+                seen.add(bssid)
+                results.append(BSSIDTarget(
+                    bssid=bssid,
+                    ssid=ssid,
+                    signal=signal,
+                    chan=chan,
+                    security=security,
+                    active=active
+                ))
+
+    def parse_sig(item: BSSIDTarget) -> int:
+        clean = DIGIT_REGEX.sub("", str(item.signal))
+        return int(clean) if clean else 0
+
+    results.sort(key=lambda item: (parse_sig(item), item.ssid, item.bssid), reverse=True)
+    return results
+
+
 def scan_bssids_for_ssid(target_ssid: str) -> list[BSSIDTarget]:
     """Scans for available BSSIDs matching the target SSID and retrieves their network security."""
     trace(f"[FEATURE] Rescanning Wi-Fi and scanning BSSIDs for target SSID '{target_ssid}'")

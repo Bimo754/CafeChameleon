@@ -161,6 +161,10 @@ def parse_arguments():
     wifi_action_grp = wifi_p.add_argument_group("Actions")
     wifi_mut = wifi_action_grp.add_mutually_exclusive_group(required=True)
     wifi_mut.add_argument(
+        "--scan", nargs="*", metavar="SSID",
+        help="Scan and display available nearby Wi-Fi networks and BSSIDs"
+    )
+    wifi_mut.add_argument(
         "-l", "--lock", nargs="*", metavar="BSSID",
         help="Lock connection to BSSID"
     )
