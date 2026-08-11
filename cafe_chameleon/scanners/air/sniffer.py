@@ -16,6 +16,49 @@ from .stimulator import ClientStimulator
 DIGIT_REGEX = re.compile(r"[^\d]")
 
 
+class AirClientsMap(dict):
+    """
+    Specialized mapping container for BSSID-to-clients dictionary that preserves
+    full dict interface ({bssid: {client_mac: ip}}) while providing attached
+    client metadata, active status tracking, and helper querying methods.
+    """
+    def __init__(self, *args, client_metadata: dict | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.client_metadata: dict = client_metadata or {}
+
+    @property
+    def active_clients(self) -> set[str]:
+        """Returns set of all active client MAC addresses."""
+        return {
+            mac.lower() for mac, meta in self.client_metadata.items()
+            if isinstance(meta, dict) and meta.get("active")
+        }
+
+    def is_client_active(self, mac: str) -> bool:
+        if not mac:
+            return False
+        meta = self.client_metadata.get(mac.lower())
+        return bool(meta and meta.get("active"))
+
+    def count_active_clients(self, bssid: str) -> int:
+        if not bssid:
+            return 0
+        bssid_lower = bssid.lower()
+        clients = self.get(bssid_lower, {})
+        if not isinstance(clients, dict):
+            return 0
+        return sum(1 for mac in clients if self.is_client_active(mac))
+
+    def get_active_clients_for_bssid(self, bssid: str) -> list[str]:
+        if not bssid:
+            return []
+        bssid_lower = bssid.lower()
+        clients = self.get(bssid_lower, {})
+        if not isinstance(clients, dict):
+            return []
+        return [mac for mac in clients if self.is_client_active(mac)]
+
+
 def parse_clean_int(val) -> int | None:
     """Extracts integer value from string or number safely."""
     try:
@@ -256,9 +299,11 @@ def sniff_air_clients(
         set_managed_mode(interface)
 
     total_clients = sum(len(c) for c in bssid_to_clients.values())
+    active_clients_count = sum(1 for m, info in client_metadata.items() if info.get("active"))
     if total_clients > 0:
-        log_air(f"\n[+] Air Sniff Complete: Found {total_clients} target client(s).")
+        active_suffix = f" ({active_clients_count} active)" if active_clients_count > 0 else ""
+        log_air(f"\n[+] Air Sniff Complete: Found {total_clients} target client(s){active_suffix}.")
     else:
         log_air("\n[i] Air Sniff Complete: No active clients captured.")
 
-    return bssid_to_clients
+    return AirClientsMap(bssid_to_clients, client_metadata=client_metadata)

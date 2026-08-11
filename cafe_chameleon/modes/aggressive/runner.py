@@ -216,11 +216,11 @@ def run_aggressive(args) -> bool:
                 bssid_air_clients = air_clients_map.get(target_bssid.lower(), {})
 
             auto_params = auto_detect_network_params(target_iface=interface)
-            new_air_clients = filter_valid_air_clients(bssid_air_clients, tried_macs, auto_params, bssids)
+            new_air_clients = filter_valid_air_clients(bssid_air_clients, tried_macs, auto_params, bssids, air_clients_map=air_clients_map)
 
             if new_air_clients:
                 success_air, stop_early = test_air_client_targets(
-                    new_air_clients, interface, target_bssid, chan, profile, tried_macs, auto_params, args, security=target_sec
+                    new_air_clients, interface, target_bssid, chan, profile, tried_macs, auto_params, args, security=target_sec, air_clients_map=air_clients_map
                 )
                 if stop_early or (success_air and not getattr(args, "force", False)):
                     return True

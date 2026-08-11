@@ -6,7 +6,7 @@ import sys
 
 from cafe_chameleon.ui.console import log_info, log_main, log_warning, get_user_input
 from cafe_chameleon.utils.signals import restore_and_exit, MainSkipInterrupt, WindowCtrlCInterrupt
-from .ranker import calculate_bssid_score
+from .ranker import calculate_bssid_score, count_active_clients
 
 
 def parse_target_selection(selection_str: str, max_count: int) -> list[int]:
@@ -63,11 +63,15 @@ def display_and_select_bssid(
         reverse=True
     )
 
+    has_active_any = any(count_active_clients(b.get("bssid", ""), air_clients_map) > 0 for b in bssids) if air_clients_map else False
+
     log_main("\n\033[1;38;5;215m── AUTO-RANKED BSSID TARGETS ──────────────────────────────────────────\033[0m")
     for rank, b in enumerate(bssids, start=1):
         score, clients, sig = calculate_bssid_score(b, air_clients_map, prioritize_clients=prioritize_clients)
+        active_cnt = count_active_clients(b.get("bssid", ""), air_clients_map)
         sec_str = b.get("security") or "OPEN"
-        log_main(f" #{rank:<2} │ \033[1;37mBSSID:\033[0m {b['bssid']} │ \033[1;37mScore:\033[0m {score:<4} │ \033[1;37mClients:\033[0m {clients:<2} │ \033[1;37mSig:\033[0m {sig}% │ \033[1;37mCh:\033[0m {b['chan']} │ \033[1;37mSec:\033[0m {sec_str}")
+        active_str = f" │ \033[1;37mActive:\033[0m \033[1;32m{active_cnt:<2}\033[0m" if (has_active_any or active_cnt > 0) else ""
+        log_main(f" #{rank:<2} │ \033[1;37mBSSID:\033[0m {b['bssid']} │ \033[1;37mScore:\033[0m {score:<4} │ \033[1;37mClients:\033[0m {clients:<2}{active_str} │ \033[1;37mSig:\033[0m {sig}% │ \033[1;37mCh:\033[0m {b['chan']} │ \033[1;37mSec:\033[0m {sec_str}")
     log_main("\033[1;30m────────────────────────────────────────────────────────────────────────\033[0m\n")
 
     if not select_requested:
@@ -88,8 +92,10 @@ def display_and_select_bssid(
     log_main("\n\033[1;38;5;215m── BSSID SELECTION LIST (Press CTRL+C in xterm or 'q' to exit) ────────\033[0m")
     for i, b in enumerate(bssids, start=1):
         score, clients, sig = calculate_bssid_score(b, air_clients_map, prioritize_clients=prioritize_clients)
+        active_cnt = count_active_clients(b.get("bssid", ""), air_clients_map)
         sec_str = b.get("security") or "OPEN"
-        log_main(f"  [{i}] {b['bssid']} (\033[1;37mClients:\033[0m {clients}, \033[1;37mSignal:\033[0m {sig}%, \033[1;37mChannel:\033[0m {b['chan']}, \033[1;37mSecurity:\033[0m {sec_str})")
+        active_suffix = f", \033[1;32mActive:\033[0m {active_cnt}" if active_cnt > 0 else ""
+        log_main(f"  [{i}] {b['bssid']} (\033[1;37mClients:\033[0m {clients}{active_suffix}, \033[1;37mSignal:\033[0m {sig}%, \033[1;37mChannel:\033[0m {b['chan']}, \033[1;37mSecurity:\033[0m {sec_str})")
     log_main("\033[1;30m────────────────────────────────────────────────────────────────────────\033[0m\n")
 
     while True:
