@@ -91,30 +91,36 @@ def restore_and_exit(reason: str = "Terminated."):
             except Exception:
                 pass
 
-    # Ensure monitor mode is disabled and interface is restored to managed
+    # Release and unlock wireless interface (wifi --release mode)
     try:
-        from cafe_chameleon.scanners.air import is_monitor_mode_active, set_managed_mode
-        iface = (params and params.get("interface")) or "wlan0"
-        if is_monitor_mode_active(iface):
-            set_managed_mode(iface)
+        from cafe_chameleon.network.nmcli import release_interface
+        prof = (params and params.get("profile"))
+        iface = (params and params.get("interface"))
+        release_interface(interface=iface, profile=prof)
     except Exception:
-        pass
+        # Fallback cleanup for monitor mode, NetworkManager profile, hardware MAC, and lingering dhclient
+        try:
+            from cafe_chameleon.scanners.air import is_monitor_mode_active, set_managed_mode
+            iface = (params and params.get("interface")) or "wlan0"
+            if is_monitor_mode_active(iface):
+                set_managed_mode(iface)
+        except Exception:
+            pass
 
-    # Fallback cleanup for NetworkManager profile, hardware MAC, and lingering dhclient
-    try:
-        from cafe_chameleon.network.nmcli import get_active_profile
-        from cafe_chameleon.network.mac import reset_mac_address
-        from cafe_chameleon.utils.process import _run
-        
-        prof = (params and params.get("profile")) or get_active_profile()
-        iface = (params and params.get("interface")) or "wlan0"
-        if prof:
-            _run(["nmcli", "connection", "modify", prof, "802-11-wireless.bssid", ""], debug=False)
-            _run(["nmcli", "connection", "modify", prof, "802-11-wireless.cloned-mac-address", ""], debug=False)
-        reset_mac_address(iface, profile=prof)
-        _run(f"pkill -9 -f 'dhclient.*{iface}'", debug=False)
-    except Exception:
-        pass
+        try:
+            from cafe_chameleon.network.nmcli import get_active_profile
+            from cafe_chameleon.network.mac import reset_mac_address
+            from cafe_chameleon.utils.process import _run
+            
+            prof = (params and params.get("profile")) or get_active_profile()
+            iface = (params and params.get("interface")) or "wlan0"
+            if prof:
+                _run(["nmcli", "connection", "modify", prof, "802-11-wireless.bssid", ""], debug=False)
+                _run(["nmcli", "connection", "modify", prof, "802-11-wireless.cloned-mac-address", ""], debug=False)
+            reset_mac_address(iface, profile=prof)
+            _run(f"pkill -9 -f 'dhclient.*{iface}'", debug=False)
+        except Exception:
+            pass
 
     close_xterm()
     os._exit(0)

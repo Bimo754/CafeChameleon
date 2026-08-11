@@ -3,9 +3,11 @@ cafe_chameleon.scanners.air.sniffer - Over-the-air 802.11 monitor mode client di
 """
 
 import re
+import threading
+import time
 from cafe_chameleon.config import DEFAULT_AIR_DURATION, DEFAULT_BSSID_THRESHOLD
 from cafe_chameleon.utils.signals import AirSkipInterrupt
-from cafe_chameleon.ui.console import log_air
+from cafe_chameleon.ui.console import log_air, set_air_status
 from cafe_chameleon.scanners.detector import auto_detect_network_params
 
 from .mode import set_monitor_mode, set_managed_mode
@@ -14,6 +16,37 @@ from .packet_parser import parse_air_packet
 from .stimulator import ClientStimulator
 
 DIGIT_REGEX = re.compile(r"[^\d]")
+
+
+class AirCountdownTimer:
+    """Manages background countdown timer updating the air sniffer remaining seconds."""
+    def __init__(self, duration: int, interval: float = 0.5):
+        self.duration = duration
+        self.interval = interval
+        self.stop_event = threading.Event()
+        self._thread = None
+
+    def start(self) -> None:
+        start_t = time.time()
+        end_t = start_t + self.duration
+        set_air_status(mode="Monitor", remaining=f"{self.duration}s")
+
+        def timer_loop():
+            while not self.stop_event.is_set():
+                now = time.time()
+                remaining = max(0, int(end_t - now))
+                set_air_status(mode="Monitor", remaining=f"{remaining}s")
+                if remaining <= 0:
+                    break
+                self.stop_event.wait(self.interval)
+
+        self._thread = threading.Thread(target=timer_loop, daemon=True)
+        self._thread.start()
+
+    def stop(self, timeout: float = 1.0) -> None:
+        self.stop_event.set()
+        if self._thread:
+            self._thread.join(timeout=timeout)
 
 
 class AirClientsMap(dict):
@@ -293,7 +326,14 @@ def sniff_air_clients(
         hopper = ChannelHopper(mon_iface, hop_channels, dwell_times=dwell_times, on_channel_change=on_channel_hop)
         hopper.start()
 
-        sniff(iface=mon_iface, timeout=effective_duration, prn=air_packet_callback, store=False)
+        timer = AirCountdownTimer(duration=effective_duration)
+        timer.start()
+
+        try:
+            sniff(iface=mon_iface, timeout=effective_duration, prn=air_packet_callback, store=False)
+        finally:
+            timer.stop()
+            set_air_status(mode="Monitor", remaining="0s")
     except (AirSkipInterrupt, KeyboardInterrupt):
         log_air("\n\033[93m[-] Stopped air sniff (Ctrl+C). Processing captured targets...\033[0m")
     except Exception as e:
@@ -302,6 +342,7 @@ def sniff_air_clients(
         if hopper:
             hopper.stop(timeout=1.0)
         set_managed_mode(interface)
+        set_air_status(mode="Managed", remaining="N/A")
 
     total_clients = sum(len(c) for c in bssid_to_clients.values())
     active_clients_count = sum(1 for m, info in client_metadata.items() if info.get("active"))

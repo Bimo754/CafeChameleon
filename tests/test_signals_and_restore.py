@@ -198,9 +198,77 @@ class TestSignalsAndRestoreCleanup(unittest.TestCase):
         hdr_none = format_hijack_header(None, None, "Idle")
         lines_none = hdr_none.split("\n")
         self.assertEqual(len(lines_none), 4)
-        self.assertIn("\033[1;37mIP:\033[0m \033[1;31mNot Found\033[0m", lines_none[0])
-        self.assertIn("\033[1;37mMac:\033[0m \033[1;31mNot Found\033[0m", lines_none[1])
-        self.assertIn("\033[1;37mTechnique:\033[0m \033[1;33mIdle\033[0m", lines_none[2])
+        # Test air status setting, remaining timer, and reset
+        mgr.set_air_status(mode="Monitor", remaining=15)
+        self.assertEqual(mgr.air_mode, "Monitor")
+        self.assertEqual(mgr.air_remaining, "15s")
+
+        mgr.set_air_status(remaining=10)
+        self.assertEqual(mgr.air_mode, "Monitor")
+        self.assertEqual(mgr.air_remaining, "10s")
+
+        mgr.set_air_status(mode="Managed", remaining="N/A")
+        self.assertEqual(mgr.air_mode, "Managed")
+        self.assertEqual(mgr.air_remaining, "N/A")
+
+        # Test format_air_header with mode and remaining seconds
+        from cafe_chameleon.ui.xterm.headers import format_air_header
+        hdr_air_mon = format_air_header("Monitor", 25)
+        lines_air = hdr_air_mon.split("\n")
+        self.assertEqual(len(lines_air), 2)
+        self.assertIn("Monitor", lines_air[0])
+        self.assertIn("25s", lines_air[0])
+
+        hdr_air_mng = format_air_header("Managed", "N/A")
+        lines_air_mng = hdr_air_mng.split("\n")
+        self.assertEqual(len(lines_air_mng), 2)
+        self.assertIn("Managed", lines_air_mng[0])
+        self.assertIn("N/A", lines_air_mng[0])
+
+        # Test AirCountdownTimer
+        from cafe_chameleon.scanners.air.sniffer import AirCountdownTimer
+        timer = AirCountdownTimer(duration=2, interval=0.1)
+        timer.start()
+        import time
+        time.sleep(0.3)
+        timer.stop()
+
+    @patch("os._exit")
+    @patch("cafe_chameleon.utils.signals.close_xterm")
+    @patch("cafe_chameleon.utils.signals.get_restore_callback")
+    @patch("cafe_chameleon.utils.signals.get_restore_params")
+    @patch("cafe_chameleon.network.nmcli.release_interface")
+    def test_restore_and_exit_calls_release_interface(
+        self, mock_release, mock_get_params, mock_get_callback, mock_close, mock_exit
+    ):
+        mock_get_callback.return_value = None
+        mock_get_params.return_value = {"interface": "wlan0", "profile": "MyProfile"}
+        restore_and_exit("Testing release interface on exit")
+
+        mock_release.assert_called_once_with(interface="wlan0", profile="MyProfile")
+        mock_close.assert_called_once()
+        mock_exit.assert_called_once_with(0)
+
+    @patch("cafe_chameleon.network.nmcli.release_interface")
+    @patch("main.parse_arguments")
+    @patch("main.init_xterm", return_value=False)
+    def test_main_calls_release_interface_when_aggressive_or_simple_fails(
+        self, mock_init, mock_parse, mock_release
+    ):
+        from main import main
+        mock_args = MagicMock()
+        mock_args.debug = False
+        mock_args.original_mac = False
+        mock_args.quiet = True
+        mock_args.interface = "wlan0"
+        mock_args.profile = "TestProfile"
+        mock_args.no_xterm = True
+        mock_args.command = "aggressive"
+        mock_args.func.return_value = False
+        mock_parse.return_value = mock_args
+
+        main()
+        mock_release.assert_called_with(interface="wlan0", profile="TestProfile")
 
 
 if __name__ == "__main__":

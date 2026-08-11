@@ -69,6 +69,10 @@ def main():
                 print(colorize_brackets(f"\n{BOLD}{GREEN}[+] Operation Complete: Internet Access Granted!{RESET}\n"))
             else:
                 print(colorize_brackets(f"\n{BOLD}{RED}[-] Operation Complete: No Internet Access Secured.{RESET}\n"))
+                iface_arg = getattr(args, "interface", None)
+                prof_arg = getattr(args, "profile", None)
+                from cafe_chameleon.network.nmcli import release_interface
+                release_interface(interface=iface_arg, profile=prof_arg)
 
     except KeyboardInterrupt:
         trace("[FEATURE] Process interrupted by user (Ctrl+C).")

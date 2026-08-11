@@ -143,11 +143,22 @@ def run_simple(args, quiet_header: bool = False) -> bool:
     if getattr(args, "force", False):
         if ask_restore(default_restore=not has_acc):
             restore(interface, local_mac, ipmask, broadcast, gw_ip, profile=profile)
+            if not has_acc:
+                try:
+                    from cafe_chameleon.network.nmcli import release_interface
+                    release_interface(interface=interface, profile=profile)
+                except Exception:
+                    pass
         else:
             log_plus("Keeping current MAC and network configuration.")
     else:
         if not has_acc:
             restore(interface, local_mac, ipmask, broadcast, gw_ip, profile=profile)
+            try:
+                from cafe_chameleon.network.nmcli import release_interface
+                release_interface(interface=interface, profile=profile)
+            except Exception:
+                pass
         else:
             log_plus("Internet verified. Preserving working MAC and network configuration.")
     return has_acc

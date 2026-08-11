@@ -69,14 +69,27 @@ def log_air(text: str, clear: bool = False) -> None:
         print(colors.colorize_brackets(text))
 
 
-def set_air_mode(mode: str) -> None:
+_DEFAULT = object()
+
+
+def set_air_status(mode=_DEFAULT, remaining=_DEFAULT) -> None:
     if get_quiet():
         return
     if get_use_xterm() and XtermManager and XtermManager._instance and XtermManager._instance.enabled:
-        XtermManager._instance.set_air_mode(mode)
+        kwargs = {}
+        if mode is not _DEFAULT:
+            kwargs["mode"] = mode
+        if remaining is not _DEFAULT:
+            kwargs["remaining"] = remaining
+        XtermManager._instance.set_air_status(**kwargs)
     else:
-        color = "\033[38;5;208m" if mode.lower() == "monitor" else "\033[1;32m"
-        print(colors.colorize_brackets(f"[*] Mode: {color}{mode}\033[0m"))
+        if mode is not _DEFAULT and mode is not None:
+            color = "\033[38;5;208m" if str(mode).lower() == "monitor" else "\033[1;32m"
+            print(colors.colorize_brackets(f"[*] Mode: {color}{mode}\033[0m"))
+
+
+def set_air_mode(mode: str, remaining=_DEFAULT) -> None:
+    set_air_status(mode=mode, remaining=remaining)
 
 
 def log_scan(text: str, clear: bool = False) -> None:
@@ -85,9 +98,6 @@ def log_scan(text: str, clear: bool = False) -> None:
     formatted = format_window_text("scan", text)
     if not log_to_xterm("scan", formatted, clear=clear):
         print(colors.colorize_brackets(text))
-
-
-_DEFAULT = object()
 
 
 def set_scan_status(subnet=_DEFAULT, count=_DEFAULT, scan_type=_DEFAULT) -> None:

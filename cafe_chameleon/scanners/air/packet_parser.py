@@ -509,8 +509,7 @@ def parse_air_packet(
                                     "total_count": (meta.get("total_count", 0) + 1) if (client_metadata and client_candidate in client_metadata) else 1
                                 }
                             ip_str = f" ({best_ip})" if best_ip else ""
-                            tag = " [ACTIVE DATA]" if new_active else ""
-                            log_air(f"  [+] Target Client: {client_candidate}{ip_str}{tag} rebound to BSSID {matched_bssid} (higher priority/RSSI)")
+                            log_air(f"  [+] Rebound: {client_candidate}{ip_str} -> BSSID {matched_bssid}")
                         else:
                             # Retain binding on old_bssid, but update IP if newly discovered
                             if client_ip and not old_ip:

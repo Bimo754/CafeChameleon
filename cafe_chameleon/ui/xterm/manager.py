@@ -53,6 +53,7 @@ class XtermManager:
         self.main_ssid = "N/A"
         self.main_status = "Idle"
         self.air_mode = "Managed"
+        self.air_remaining = "N/A"
         self.hijack_ip = None
         self.hijack_mac = None
         self.hijack_technique = "Idle"
@@ -158,19 +159,31 @@ class XtermManager:
             except Exception:
                 pass
 
-    def set_air_mode(self, mode: str) -> None:
-        self.air_mode = mode
+    def set_air_status(self, mode=_DEFAULT, remaining=_DEFAULT) -> None:
+        if mode is not _DEFAULT and mode is not None:
+            self.air_mode = str(mode)
+        if remaining is not _DEFAULT:
+            if remaining is None:
+                self.air_remaining = "N/A"
+            elif isinstance(remaining, (int, float)):
+                self.air_remaining = f"{int(remaining)}s"
+            else:
+                r_str = str(remaining).strip()
+                self.air_remaining = f"{r_str}s" if r_str.isdigit() else r_str
         if not self.enabled or self.closing or "air" not in self.active_windows:
             return
         handle = self.handles.get("air")
         if handle:
             try:
-                sec = format_air_header(self.air_mode)
+                sec = format_air_header(self.air_mode, self.air_remaining)
                 default_color = self.window_default_colors.get("air", "\033[0m")
                 handle.write(f"\033[s\033[2;1H{sec}\033[u{default_color}")
                 handle.flush()
             except Exception:
                 pass
+
+    def set_air_mode(self, mode: str, remaining=_DEFAULT) -> None:
+        self.set_air_status(mode=mode, remaining=remaining)
 
     def set_hijack_status(self, ip=_DEFAULT, mac=_DEFAULT, technique: str | None = None, clear_section2: bool = False) -> None:
         if ip is not _DEFAULT:
@@ -268,7 +281,7 @@ class XtermManager:
                     if target == "main":
                         handle.write(f"{format_main_header(self.main_interface, self.main_profile, self.main_ssid, self.main_status)}\n")
                     elif target == "air":
-                        handle.write(f"{format_air_header(self.air_mode)}\n")
+                        handle.write(f"{format_air_header(self.air_mode, self.air_remaining)}\n")
                     elif target == "hijack":
                         handle.write(f"{format_hijack_header(self.hijack_ip, self.hijack_mac, self.hijack_technique)}\n")
                     elif target == "scan":

@@ -304,4 +304,9 @@ def run_aggressive(args) -> bool:
     if is_monitor_mode_active(interface):
         set_managed_mode(interface)
     restore_auto(profile)
+    try:
+        from cafe_chameleon.network.nmcli import release_interface
+        release_interface(interface=interface, profile=profile)
+    except Exception:
+        pass
     return False

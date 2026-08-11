@@ -12,12 +12,22 @@ def format_main_header(interface: str, profile: str, ssid: str, status: str) -> 
     return f"{line1}\n{line2}\n{line3}"
 
 
-def format_air_header(air_mode: str) -> str:
+def format_air_header(air_mode: str, remaining: str | int | None = "N/A") -> str:
     if air_mode == "Monitor":
         mode_colored = "\033[38;5;208mMonitor\033[0m"
     else:
         mode_colored = "\033[1;32mManaged\033[0m"
-    line1 = f"\033[1;37mMode:\033[0m {mode_colored}\033[K"
+
+    if remaining is None or str(remaining).strip() == "":
+        rem_str = "N/A"
+    elif isinstance(remaining, (int, float)):
+        rem_str = f"{int(remaining)}s"
+    else:
+        rem_str = str(remaining).strip()
+        if rem_str.isdigit():
+            rem_str = f"{rem_str}s"
+
+    line1 = f"\033[1;37mMode:\033[0m {mode_colored} | \033[1;37mRemaining:\033[0m \033[1;33m{rem_str}\033[0m\033[K"
     line2 = "\033[1;30m───────────────────────────────────────────────────────────────────────\033[0m\033[K"
     return f"{line1}\n{line2}"
 
