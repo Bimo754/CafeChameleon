@@ -75,7 +75,9 @@ CafeChameleon provides a structured testbed to evaluate these attack surfaces an
 ### Wi-Fi Controller (`wifi`)
 * **BSSID Locking (`-l` / `--lock`)**: Binds NetworkManager connection profiles to a designated physical BSSID.
 * **Auto-Roam (`-a` / `--auto`)**: Evaluates available Access Points and roams dynamically to the strongest RSSI source.
+* **MAC Spoofing / Randomization (`-m` / `--mac`)**: Sets the MAC address to a specified value, or randomizes it if omitted.
 * **MAC Reset (`-r` / `--reset-mac`)**: Restores hardware MAC addresses to permanent factory defaults.
+* **Interface Release (`--release`)**: Completely unlocks the wireless interface (teardown monitor mode, terminate DHCP clients, restore NetworkManager).
 * **Connection Status (`-s` / `--status`)**: Queries current BSSID lock configurations, active profiles, and link parameters.
 
 ### Multi-Window Telemetry Engine
@@ -175,6 +177,15 @@ python3 main.py wifi -l 08:FA:28:56:27:80
 
 # Auto-roam to the strongest Access Point on the active profile
 python3 main.py wifi -a
+
+# Randomize MAC address on active connection
+sudo python3 main.py wifi -m
+
+# Set a specific MAC address on active connection
+sudo python3 main.py wifi -m 00:11:22:33:44:55
+
+# Set a specific MAC address on a designated profile
+sudo python3 main.py wifi --mac 00:11:22:33:44:55 "MyWiFiProfile"
 
 # Reset interface MAC address to permanent factory default
 sudo python3 main.py wifi -r

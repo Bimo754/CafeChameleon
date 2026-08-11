@@ -15,6 +15,7 @@ from cafe_chameleon.network.mac import (
     set_mac_address,
     reset_mac_address,
 )
+from cafe_chameleon.network.nmcli import change_mac
 from cafe_chameleon.utils.state import set_use_original_mac, get_use_original_mac
 from cafe_chameleon.cli.parser import parse_arguments
 
@@ -122,6 +123,48 @@ class TestMacSettingAndResetting:
         nmcli_clear = ["nmcli", "connection", "modify", "TestWiFi", "802-11-wireless.cloned-mac-address", ""]
         assert nmcli_clear in calls
 
+    @patch("cafe_chameleon.network.nmcli.restore._run")
+    def test_change_mac_with_explicit_mac(self, mock_run):
+        """Test changing MAC address to an explicit MAC via NetworkManager profile."""
+        mock_run.return_value = (0, "Success")
+
+        success = change_mac("00:11:22:33:44:55", profile="TestWiFi")
+        assert success is True
+
+        calls = [c[0][0] for c in mock_run.call_args_list]
+        nmcli_mod = ["nmcli", "connection", "modify", "TestWiFi", "802-11-wireless.cloned-mac-address", "00:11:22:33:44:55"]
+        nmcli_up = ["nmcli", "connection", "up", "TestWiFi"]
+        assert nmcli_mod in calls
+        assert nmcli_up in calls
+
+    @patch("cafe_chameleon.network.nmcli.restore._run")
+    def test_change_mac_random_when_omitted(self, mock_run):
+        """Test changing MAC address with no MAC supplied generates a valid random MAC."""
+        mock_run.return_value = (0, "Success")
+
+        success = change_mac(None, profile="TestWiFi")
+        assert success is True
+
+        calls = [c[0][0] for c in mock_run.call_args_list]
+        # Verify nmcli modify was called with a valid MAC
+        mod_call = [c for c in calls if len(c) >= 6 and c[0] == "nmcli" and c[2] == "modify"][0]
+        applied_mac = mod_call[5]
+        assert is_valid_mac(applied_mac)
+
+    def test_change_mac_invalid_mac_fails(self):
+        """Test that passing an invalid MAC string fails validation without running nmcli."""
+        success = change_mac("invalid_mac", profile="TestWiFi")
+        assert success is False
+
+    @patch("cafe_chameleon.network.mac.set_mac_address", return_value=True)
+    @patch("cafe_chameleon.network.nmcli.restore.get_active_profile", return_value=None)
+    @patch("cafe_chameleon.scanners.detector.auto_detect_network_params", return_value={"interface": "wlan0"})
+    def test_change_mac_fallback_without_profile(self, mock_detect, mock_get_profile, mock_set_mac):
+        """Test that change_mac falls back to set_mac_address when no profile is active."""
+        success = change_mac("00:11:22:33:44:55", profile=None)
+        assert success is True
+        mock_set_mac.assert_called_once_with("wlan0", "00:11:22:33:44:55", None)
+
 
 class TestCliMacFlags:
     def test_cli_simple_original_mac_flag(self):
@@ -148,6 +191,99 @@ class TestCliMacFlags:
         with patch("sys.argv", ["main.py", "wifi", "-r"]):
             args = parse_arguments()
             assert getattr(args, "reset_mac", None) is not None
+
+    def test_cli_wifi_mac_flag_no_args(self):
+        with patch("sys.argv", ["main.py", "wifi", "-m"]):
+            args = parse_arguments()
+            assert getattr(args, "mac", None) == []
+
+        with patch("sys.argv", ["main.py", "wifi", "--mac"]):
+            args = parse_arguments()
+            assert getattr(args, "mac", None) == []
+
+    def test_cli_wifi_mac_flag_with_mac(self):
+        with patch("sys.argv", ["main.py", "wifi", "--mac", "00:11:22:33:44:55"]):
+            args = parse_arguments()
+            assert getattr(args, "mac", None) == ["00:11:22:33:44:55"]
+
+    def test_cli_wifi_mac_flag_with_mac_and_profile(self):
+        with patch("sys.argv", ["main.py", "wifi", "-m", "00:11:22:33:44:55", "MyProfile"]):
+            args = parse_arguments()
+            assert getattr(args, "mac", None) == ["00:11:22:33:44:55", "MyProfile"]
+
+
+class TestWifiMacController:
+    @patch("cafe_chameleon.modes.wifi.controller.change_mac")
+    def test_run_wifi_mac_random(self, mock_change_mac):
+        """Test wifi --mac with no args passes None to change_mac."""
+        from cafe_chameleon.modes.wifi.controller import run_wifi
+        import argparse
+
+        mock_change_mac.return_value = True
+        args = argparse.Namespace(
+            status=False,
+            lock=None,
+            auto=None,
+            reset_mac=None,
+            release=None,
+            mac=[]
+        )
+        run_wifi(args)
+        mock_change_mac.assert_called_once_with(None, None)
+
+    @patch("cafe_chameleon.modes.wifi.controller.change_mac")
+    def test_run_wifi_mac_explicit(self, mock_change_mac):
+        """Test wifi --mac with specific MAC address."""
+        from cafe_chameleon.modes.wifi.controller import run_wifi
+        import argparse
+
+        mock_change_mac.return_value = True
+        args = argparse.Namespace(
+            status=False,
+            lock=None,
+            auto=None,
+            reset_mac=None,
+            release=None,
+            mac=["00:11:22:33:44:55"]
+        )
+        run_wifi(args)
+        mock_change_mac.assert_called_once_with("00:11:22:33:44:55", None)
+
+    @patch("cafe_chameleon.modes.wifi.controller.change_mac")
+    def test_run_wifi_mac_with_profile(self, mock_change_mac):
+        """Test wifi --mac with MAC and profile name."""
+        from cafe_chameleon.modes.wifi.controller import run_wifi
+        import argparse
+
+        mock_change_mac.return_value = True
+        args = argparse.Namespace(
+            status=False,
+            lock=None,
+            auto=None,
+            reset_mac=None,
+            release=None,
+            mac=["00:11:22:33:44:55", "TestProfile"]
+        )
+        run_wifi(args)
+        mock_change_mac.assert_called_once_with("00:11:22:33:44:55", "TestProfile")
+
+    @patch("cafe_chameleon.modes.wifi.controller.change_mac")
+    def test_run_wifi_mac_profile_only(self, mock_change_mac):
+        """Test wifi --mac with profile only randomizes MAC on that profile."""
+        from cafe_chameleon.modes.wifi.controller import run_wifi
+        import argparse
+
+        mock_change_mac.return_value = True
+        args = argparse.Namespace(
+            status=False,
+            lock=None,
+            auto=None,
+            reset_mac=None,
+            release=None,
+            mac=["TestProfile"]
+        )
+        run_wifi(args)
+        mock_change_mac.assert_called_once_with(None, "TestProfile")
 
 
 class TestModeMacIntegration:

@@ -62,6 +62,52 @@ def reset_mac(profile: str | None = None) -> bool:
             return False
 
 
+def change_mac(mac: str | None = None, profile: str | None = None) -> bool:
+    """Changes the MAC address of a connection profile or active interface to a specified or random MAC."""
+    from cafe_chameleon.network.mac import is_valid_mac, generate_random_mac
+
+    if mac is not None:
+        if not is_valid_mac(mac):
+            log_minus(f"Error: Invalid MAC address '{mac}'.")
+            return False
+        target_mac = mac.lower()
+    else:
+        target_mac = generate_random_mac()
+
+    profile = profile or get_active_profile()
+    if not profile:
+        from cafe_chameleon.scanners.detector import auto_detect_network_params
+        from cafe_chameleon.network.mac import set_mac_address
+        params = auto_detect_network_params()
+        iface = params.get("interface") or "wlan0"
+        if set_mac_address(iface, target_mac, None):
+            log_plus(f"MAC address changed to {target_mac}.")
+            return True
+        else:
+            log_minus(f"Failed to change MAC address to {target_mac}.")
+            return False
+
+    trace(f"[FEATURE] Setting MAC address on profile '{profile}' to {target_mac}")
+    log_step(f"Setting cloned MAC on profile '{profile}' to {target_mac}...")
+    rc, _ = _run(["nmcli", "connection", "modify", profile, "802-11-wireless.cloned-mac-address", target_mac])
+    log_wait(f"Reconnecting profile '{profile}'...")
+    rc_up, _ = _run(["nmcli", "connection", "up", profile], timeout=15.0)
+    if rc_up == 0:
+        log_plus(f"MAC address changed to {target_mac}.")
+        return True
+    else:
+        from cafe_chameleon.scanners.detector import auto_detect_network_params
+        from cafe_chameleon.network.mac import set_mac_address
+        params = auto_detect_network_params()
+        iface = params.get("interface") or "wlan0"
+        if set_mac_address(iface, target_mac, profile):
+            log_plus(f"MAC address changed to {target_mac} via fallback method.")
+            return True
+        else:
+            log_minus(f"Failed to change MAC address to {target_mac}.")
+            return False
+
+
 def release_interface(interface: str | None = None, profile: str | None = None) -> bool:
     """
     Completely unlocks and releases a wireless interface from all locks and states:

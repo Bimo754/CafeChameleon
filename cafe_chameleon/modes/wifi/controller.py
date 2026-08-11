@@ -6,7 +6,7 @@ import sys
 
 from cafe_chameleon.ui.console import log_minus
 from cafe_chameleon.network.mac import is_valid_mac
-from cafe_chameleon.network.nmcli import show_status, lock_bssid, restore_auto, reset_mac, release_interface
+from cafe_chameleon.network.nmcli import show_status, lock_bssid, restore_auto, reset_mac, release_interface, change_mac
 
 
 def run_wifi(args) -> None:
@@ -31,6 +31,31 @@ def run_wifi(args) -> None:
         auto_args = args.auto
         profile = auto_args[0] if len(auto_args) > 0 else None
         restore_auto(profile)
+    elif getattr(args, "mac", None) is not None:
+        mac_args = args.mac
+        target_mac = None
+        profile = None
+        if len(mac_args) == 1:
+            arg = mac_args[0]
+            if is_valid_mac(arg):
+                target_mac = arg
+            elif ":" in arg or "-" in arg:
+                target_mac = arg
+            else:
+                profile = arg
+        elif len(mac_args) >= 2:
+            if is_valid_mac(mac_args[0]):
+                target_mac = mac_args[0]
+                profile = mac_args[1]
+            elif is_valid_mac(mac_args[1]):
+                target_mac = mac_args[1]
+                profile = mac_args[0]
+            else:
+                target_mac = mac_args[0]
+                profile = mac_args[1]
+
+        if not change_mac(target_mac, profile):
+            sys.exit(1)
     elif getattr(args, "reset_mac", None) is not None:
         reset_args = args.reset_mac
         profile = reset_args[0] if len(reset_args) > 0 else None
@@ -54,5 +79,5 @@ def run_wifi(args) -> None:
         if not release_interface(interface=iface, profile=prof):
             sys.exit(1)
     else:
-        log_minus("No wifi action specified. Use --status, --lock, --auto, --reset-mac, or --release.")
+        log_minus("No wifi action specified. Use --status, --lock, --auto, --mac, --reset-mac, or --release.")
         sys.exit(1)
