@@ -55,7 +55,7 @@ def run_aggressive(args) -> bool:
     Main subcommand handler for Aggressive mode.
     Connects to each available BSSID for the target SSID one by one,
     checking for internet access or scanning until internet access is granted.
-    Supports --air over-the-air 802.11 monitor mode client discovery & direct takeover.
+    Supports --air / --air-only over-the-air 802.11 monitor mode client discovery & direct takeover.
     """
     register_signal_handler()
 
@@ -73,13 +73,16 @@ def run_aggressive(args) -> bool:
     trace(f"[FEATURE] Initializing Aggressive exploration mode on interface {interface} (Profile: '{profile}', SSID: '{ssid}')")
 
     air_arg = getattr(args, "air", None)
-    is_air = air_arg is not None
+    air_only_arg = getattr(args, "air_only", None)
+    is_air_only = air_only_arg is not None
+    is_air = air_arg is not None or is_air_only
     air_duration = DEFAULT_AIR_DURATION
     user_specified_duration = False
 
+    effective_air_arg = air_only_arg if air_only_arg is not None else air_arg
     if is_air:
-        if isinstance(air_arg, int) and air_arg > 0:
-            air_duration = air_arg
+        if isinstance(effective_air_arg, int) and effective_air_arg > 0:
+            air_duration = effective_air_arg
             user_specified_duration = True
         elif sys.stdin.isatty():
             try:
@@ -230,19 +233,23 @@ def run_aggressive(args) -> bool:
             if is_monitor_mode_active(interface):
                 set_managed_mode(interface)
 
-            log_step(f"Scanning subnet on BSSID {target_bssid}...")
-            log_main(f"  -> Scanning subnet on BSSID {target_bssid}...")
-            log_hijack(f"[*] Scanning subnet on BSSID {target_bssid}...")
-            setattr(args, "interface", interface)
-            success = run_scan_wrapper(args, quiet_header=True)
+            if is_air_only:
+                log_info(f"Skipping subnet scanning on BSSID {target_bssid} (--air-only enabled).")
+                log_main(f"  [*] Skipping subnet scanning on BSSID {target_bssid} (--air-only enabled).")
+            else:
+                log_step(f"Scanning subnet on BSSID {target_bssid}...")
+                log_main(f"  -> Scanning subnet on BSSID {target_bssid}...")
+                log_hijack(f"[*] Scanning subnet on BSSID {target_bssid}...")
+                setattr(args, "interface", interface)
+                success = run_scan_wrapper(args, quiet_header=True)
 
-            set_scan_status(scan_type="Idle")
+                set_scan_status(scan_type="Idle")
 
-            if success or (has_internet() and not getattr(args, "force", False)):
-                log_plus(f"SUCCESS! Internet access granted via {target_bssid}!")
-                log_main(f"\033[92m[+] SUCCESS! Internet access granted via {target_bssid}!\033[0m")
-                if not getattr(args, "force", False):
-                    return True
+                if success or (has_internet() and not getattr(args, "force", False)):
+                    log_plus(f"SUCCESS! Internet access granted via {target_bssid}!")
+                    log_main(f"\033[92m[+] SUCCESS! Internet access granted via {target_bssid}!\033[0m")
+                    if not getattr(args, "force", False):
+                        return True
 
             log_warning(f"No internet on BSSID {target_bssid}. Moving next...")
             log_main(f"  [-] No internet on BSSID {target_bssid}. Moving next...")

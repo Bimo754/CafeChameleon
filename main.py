@@ -41,13 +41,19 @@ def main():
         else:
             cmd = getattr(args, "command", "")
             has_air = getattr(args, "air", None) is not None
+            has_air_only = getattr(args, "air_only", None) is not None
 
             if cmd == "wifi":
                 active_windows = []
             elif cmd == "simple":
-                active_windows = ["air", "scan", "hijack"] if has_air else ["scan", "hijack"]
+                active_windows = ["air", "scan", "hijack"] if (has_air or has_air_only) else ["scan", "hijack"]
             elif cmd == "aggressive":
-                active_windows = ["main", "air", "scan", "hijack"] if has_air else ["main", "scan", "hijack"]
+                if has_air_only:
+                    active_windows = ["main", "air", "hijack"]
+                elif has_air:
+                    active_windows = ["main", "air", "scan", "hijack"]
+                else:
+                    active_windows = ["main", "scan", "hijack"]
             else:
                 active_windows = ["main", "air", "scan", "hijack"]
 
