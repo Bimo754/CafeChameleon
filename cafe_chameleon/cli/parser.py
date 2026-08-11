@@ -4,7 +4,6 @@ cafe_chameleon.cli.parser - CLI Argument Parser definitions for simple, aggressi
 
 import argparse
 
-from cafe_chameleon.network.nmcli import DEFAULT_BSSID
 from cafe_chameleon.modes.simple import run_simple
 from cafe_chameleon.modes.aggressive import run_aggressive
 from cafe_chameleon.modes.wifi import run_wifi
@@ -163,7 +162,7 @@ def parse_arguments():
     wifi_mut = wifi_action_grp.add_mutually_exclusive_group(required=True)
     wifi_mut.add_argument(
         "-l", "--lock", nargs="*", metavar="BSSID",
-        help=f"Lock connection to BSSID (default: {DEFAULT_BSSID})"
+        help="Lock connection to BSSID"
     )
     wifi_mut.add_argument(
         "-a", "--auto", nargs="*", metavar="PROFILE",

@@ -6,7 +6,6 @@ FIFO_DIR: str = "/tmp/captive_xterm_fifos"
 EVENT_FILE: str = "/tmp/captive_xterm_fifos/last_ctrl_c.event"
 TRACE_FILE: str = "cafe_chameleon_trace.log"
 
-DEFAULT_BSSID: str = "08:FA:28:56:27:80"
 DEFAULT_BSSID_THRESHOLD: int = 10
 DEFAULT_AIR_DURATION: int = 45
 DEFAULT_CARRIER_TIMEOUT: float = 6.0

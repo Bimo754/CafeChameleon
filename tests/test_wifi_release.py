@@ -87,6 +87,50 @@ class TestWifiRelease(unittest.TestCase):
         self.assertEqual(args.command, "wifi")
         self.assertEqual(args.release, [])
 
+    @patch("sys.argv", ["main.py", "wifi", "-l"])
+    def test_cli_parser_lock_short_flag(self):
+        args = parse_arguments()
+        self.assertEqual(args.command, "wifi")
+        self.assertEqual(args.lock, [])
+
+    @patch("sys.argv", ["main.py", "wifi", "--lock", "11:22:33:44:55:66"])
+    def test_cli_parser_lock_long_flag_with_bssid(self):
+        args = parse_arguments()
+        self.assertEqual(args.command, "wifi")
+        self.assertEqual(args.lock, ["11:22:33:44:55:66"])
+
+    @patch("cafe_chameleon.modes.wifi.controller.lock_bssid")
+    def test_run_wifi_lock_without_bssid_calls_interactive(self, mock_lock):
+        mock_lock.return_value = True
+        args = argparse.Namespace(
+            status=False,
+            lock=[],
+            auto=None,
+            mac=None,
+            reset_mac=None,
+            release=None,
+            reconnect=None,
+            share=None
+        )
+        run_wifi(args)
+        mock_lock.assert_called_once_with(None, None)
+
+    @patch("cafe_chameleon.modes.wifi.controller.lock_bssid")
+    def test_run_wifi_lock_with_specific_bssid(self, mock_lock):
+        mock_lock.return_value = True
+        args = argparse.Namespace(
+            status=False,
+            lock=["11:22:33:44:55:66"],
+            auto=None,
+            mac=None,
+            reset_mac=None,
+            release=None,
+            reconnect=None,
+            share=None
+        )
+        run_wifi(args)
+        mock_lock.assert_called_once_with("11:22:33:44:55:66", None)
+
 
 if __name__ == "__main__":
     unittest.main()

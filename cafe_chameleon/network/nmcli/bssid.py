@@ -5,7 +5,6 @@ cafe_chameleon.network.nmcli.bssid - BSSID scanning, BSSID locking, and active B
 import re
 import time
 
-from cafe_chameleon.config import DEFAULT_BSSID
 from cafe_chameleon.models import BSSIDTarget
 from cafe_chameleon.utils.process import _run
 from cafe_chameleon.utils.tracing import trace
