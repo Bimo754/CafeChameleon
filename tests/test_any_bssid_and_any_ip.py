@@ -131,6 +131,7 @@ class TestAnyBSSIDAndAnyIP(unittest.TestCase):
     # ---------------------------------------------------------
     # 3. --any-bssid Client Pooling & Multi-BSSID Execution
     # ---------------------------------------------------------
+    @patch("cafe_chameleon.modes.aggressive.runner.auto_detect_network_params", return_value={"interface": "wlan0"})
     @patch("cafe_chameleon.modes.aggressive.runner.get_active_profile", return_value="Cafe_WiFi")
     @patch("cafe_chameleon.modes.aggressive.runner.get_ssid_for_profile", return_value="Cafe_SSID")
     @patch("cafe_chameleon.modes.aggressive.runner.has_internet", side_effect=[False, False, True])
@@ -150,7 +151,8 @@ class TestAnyBSSIDAndAnyIP(unittest.TestCase):
         mock_scan_bssids,
         mock_has_internet,
         mock_get_ssid,
-        mock_get_profile
+        mock_get_profile,
+        mock_auto_params
     ):
         mock_scan_bssids.return_value = [
             {"bssid": "10:11:12:13:14:15", "signal": "90", "chan": "1", "security": "OPEN"},
@@ -186,6 +188,7 @@ class TestAnyBSSIDAndAnyIP(unittest.TestCase):
         self.assertIn("00:11:22:33:44:01", passed_clients)
         self.assertIn("00:11:22:33:44:02", passed_clients)
 
+    @patch("cafe_chameleon.modes.aggressive.runner.auto_detect_network_params", return_value={"interface": "wlan0"})
     @patch("cafe_chameleon.modes.aggressive.runner.get_active_profile", return_value="Cafe_WiFi")
     @patch("cafe_chameleon.modes.aggressive.runner.get_ssid_for_profile", return_value="Cafe_SSID")
     @patch("cafe_chameleon.modes.aggressive.runner.has_internet", side_effect=[False, False, True])
@@ -205,7 +208,8 @@ class TestAnyBSSIDAndAnyIP(unittest.TestCase):
         mock_scan_bssids,
         mock_has_internet,
         mock_get_ssid,
-        mock_get_profile
+        mock_get_profile,
+        mock_auto_params
     ):
         mock_scan_bssids.return_value = [
             {"bssid": "10:11:12:13:14:15", "signal": "90", "chan": "1", "security": "OPEN"},

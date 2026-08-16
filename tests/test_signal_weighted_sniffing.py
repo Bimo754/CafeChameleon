@@ -106,12 +106,14 @@ class TestSignalWeightedSniffing(unittest.TestCase):
         self.assertEqual(hopper.dwell_times[1], 0.5)
         self.assertEqual(hopper.dwell_times[6], 0.3)
 
+    @patch("cafe_chameleon.scanners.air.sniffer.AirCountdownTimer")
+    @patch("cafe_chameleon.scanners.air.sniffer.auto_detect_network_params", return_value={"interface": "wlan0", "local_mac": "00:11:22:33:44:55"})
     @patch("cafe_chameleon.scanners.air.sniffer.set_managed_mode")
     @patch("cafe_chameleon.scanners.air.sniffer.set_monitor_mode")
     @patch("cafe_chameleon.scanners.air.sniffer.ChannelHopper")
     @patch("scapy.all.sniff", create=True)
     def test_sniff_air_clients_applies_weighted_hopping_when_bssids_exceed_10(
-        self, mock_sniff, mock_hopper_cls, mock_set_mon, mock_set_managed
+        self, mock_sniff, mock_hopper_cls, mock_set_mon, mock_set_managed, mock_auto_params, mock_timer_cls
     ):
         mock_set_mon.return_value = "wlan0"
         mock_hopper = MagicMock()
@@ -143,12 +145,14 @@ class TestSignalWeightedSniffing(unittest.TestCase):
         self.assertGreater(dwell_times[1], dwell_times[6])
         self.assertGreater(dwell_times[6], dwell_times[11])
 
+    @patch("cafe_chameleon.scanners.air.sniffer.AirCountdownTimer")
+    @patch("cafe_chameleon.scanners.air.sniffer.auto_detect_network_params", return_value={"interface": "wlan0", "local_mac": "00:11:22:33:44:55"})
     @patch("cafe_chameleon.scanners.air.sniffer.set_managed_mode")
     @patch("cafe_chameleon.scanners.air.sniffer.set_monitor_mode")
     @patch("cafe_chameleon.scanners.air.sniffer.ChannelHopper")
     @patch("scapy.all.sniff", create=True)
     def test_sniff_air_clients_does_not_weight_when_bssids_equal_or_below_10(
-        self, mock_sniff, mock_hopper_cls, mock_set_mon, mock_set_managed
+        self, mock_sniff, mock_hopper_cls, mock_set_mon, mock_set_managed, mock_auto_params, mock_timer_cls
     ):
         mock_set_mon.return_value = "wlan0"
         mock_hopper = MagicMock()
@@ -177,12 +181,14 @@ class TestSignalWeightedSniffing(unittest.TestCase):
         dwell_times = call_kwargs.get("dwell_times")
         self.assertIsNone(dwell_times)
 
+    @patch("cafe_chameleon.scanners.air.sniffer.AirCountdownTimer")
+    @patch("cafe_chameleon.scanners.air.sniffer.auto_detect_network_params", return_value={"interface": "wlan0", "local_mac": "00:11:22:33:44:55"})
     @patch("cafe_chameleon.scanners.air.sniffer.set_managed_mode")
     @patch("cafe_chameleon.scanners.air.sniffer.set_monitor_mode")
     @patch("cafe_chameleon.scanners.air.sniffer.ChannelHopper")
     @patch("scapy.all.sniff", create=True)
     def test_sniff_air_clients_forces_weighted_when_threshold_is_zero(
-        self, mock_sniff, mock_hopper_cls, mock_set_mon, mock_set_managed
+        self, mock_sniff, mock_hopper_cls, mock_set_mon, mock_set_managed, mock_auto_params, mock_timer_cls
     ):
         mock_set_mon.return_value = "wlan0"
         mock_hopper = MagicMock()

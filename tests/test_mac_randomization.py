@@ -444,6 +444,7 @@ class TestModeMacIntegration:
         mock_get_attack_mac.assert_called_once_with("wlan0")
         mock_set_mac.assert_called_once_with("wlan0", "02:aa:bb:cc:dd:ee", profile="TestProfile")
 
+    @patch("cafe_chameleon.modes.aggressive.runner.auto_detect_network_params", return_value={"interface": "wlan0"})
     @patch("cafe_chameleon.modes.aggressive.runner.run_scan_wrapper", return_value=False)
     @patch("cafe_chameleon.modes.aggressive.runner.lock_bssid", return_value=True)
     @patch("cafe_chameleon.modes.aggressive.runner.set_mac_address")
@@ -459,7 +460,7 @@ class TestModeMacIntegration:
     def test_aggressive_mode_applies_attack_mac_per_bssid(
         self, mock_sig, mock_mon, mock_carrier, mock_get_profile, mock_get_ssid,
         mock_has_net, mock_scan_bssids, mock_select_bssid, mock_get_attack_mac,
-        mock_set_mac, mock_lock, mock_scan_wrapper
+        mock_set_mac, mock_lock, mock_scan_wrapper, mock_auto_params
     ):
         from cafe_chameleon.modes.aggressive.runner import run_aggressive
 

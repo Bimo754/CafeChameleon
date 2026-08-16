@@ -90,6 +90,7 @@ class TestAirOnlyXtermWindows(unittest.TestCase):
 class TestAirOnlyExecution(unittest.TestCase):
     """Tests aggressive execution behavior with --air-only flag."""
 
+    @patch("cafe_chameleon.modes.aggressive.runner.auto_detect_network_params", return_value={"interface": "wlan0"})
     @patch("cafe_chameleon.modes.aggressive.runner.get_active_profile", return_value="Cafe_WiFi")
     @patch("cafe_chameleon.modes.aggressive.runner.get_ssid_for_profile", return_value="Cafe_SSID")
     @patch("cafe_chameleon.modes.aggressive.runner.has_internet", return_value=False)
@@ -111,7 +112,8 @@ class TestAirOnlyExecution(unittest.TestCase):
         mock_scan_bssids,
         mock_has_internet,
         mock_get_ssid,
-        mock_get_profile
+        mock_get_profile,
+        mock_auto_params
     ):
         mock_scan_bssids.return_value = [
             {"bssid": "11:22:33:44:55:66", "signal": "80", "chan": "1", "security": "OPEN"},
@@ -155,6 +157,7 @@ class TestAirOnlyExecution(unittest.TestCase):
         # Both BSSIDs should have been locked and tried
         self.assertEqual(mock_lock_bssid.call_count, 2)
 
+    @patch("cafe_chameleon.modes.aggressive.runner.auto_detect_network_params", return_value={"interface": "wlan0"})
     @patch("cafe_chameleon.modes.aggressive.runner.get_active_profile", return_value="Cafe_WiFi")
     @patch("cafe_chameleon.modes.aggressive.runner.get_ssid_for_profile", return_value="Cafe_SSID")
     @patch("cafe_chameleon.modes.aggressive.runner.has_internet", return_value=False)
@@ -176,7 +179,8 @@ class TestAirOnlyExecution(unittest.TestCase):
         mock_scan_bssids,
         mock_has_internet,
         mock_get_ssid,
-        mock_get_profile
+        mock_get_profile,
+        mock_auto_params
     ):
         mock_scan_bssids.return_value = [
             {"bssid": "11:22:33:44:55:66", "signal": "80", "chan": "1", "security": "OPEN"},
@@ -208,6 +212,7 @@ class TestAirOnlyExecution(unittest.TestCase):
         # For regular --air, run_scan_wrapper MUST be called if air targets failed
         mock_run_scan_wrapper.assert_called_once()
 
+    @patch("cafe_chameleon.modes.aggressive.runner.auto_detect_network_params", return_value={"interface": "wlan0"})
     @patch("cafe_chameleon.modes.aggressive.runner.get_active_profile", return_value="Cafe_WiFi")
     @patch("cafe_chameleon.modes.aggressive.runner.get_ssid_for_profile", return_value="Cafe_SSID")
     @patch("cafe_chameleon.modes.aggressive.runner.has_internet", return_value=False)
@@ -229,7 +234,8 @@ class TestAirOnlyExecution(unittest.TestCase):
         mock_scan_bssids,
         mock_has_internet,
         mock_get_ssid,
-        mock_get_profile
+        mock_get_profile,
+        mock_auto_params
     ):
         mock_scan_bssids.return_value = [
             {"bssid": "11:22:33:44:55:66", "signal": "80", "chan": "1", "security": "OPEN"},

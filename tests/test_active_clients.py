@@ -228,6 +228,7 @@ class TestPrioritizedActiveImpersonation(unittest.TestCase):
         first_targeted_mac = mock_hijack.call_args[0][2]
         self.assertEqual(first_targeted_mac, "active_mac_1")
 
+    @patch("cafe_chameleon.modes.aggressive.runner.auto_detect_network_params", return_value={"interface": "wlan0"})
     @patch("cafe_chameleon.modes.aggressive.runner.get_active_profile", return_value="Cafe_WiFi")
     @patch("cafe_chameleon.modes.aggressive.runner.get_ssid_for_profile", return_value="Cafe_SSID")
     @patch("cafe_chameleon.modes.aggressive.runner.has_internet", side_effect=[False, False, True])
@@ -247,7 +248,8 @@ class TestPrioritizedActiveImpersonation(unittest.TestCase):
         mock_scan_bssids,
         mock_has_internet,
         mock_get_ssid,
-        mock_get_profile
+        mock_get_profile,
+        mock_auto_params
     ):
         import argparse
         from cafe_chameleon.modes.aggressive.runner import run_aggressive

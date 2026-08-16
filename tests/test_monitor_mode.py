@@ -57,7 +57,13 @@ class TestMonitorModeCleanup(unittest.TestCase):
     @patch("shutil.which")
     def test_set_managed_mode_cleans_up(self, mock_which, mock_run, mock_carrier):
         mock_which.side_effect = lambda cmd: "/usr/bin/" + cmd if cmd in ("airmon-ng", "systemctl") else None
-        mock_run.return_value = (0, "wlan0 connected")
+        # When is-active returns 1 (inactive/killed), it restarts services
+        def run_side_effect(cmd, **kwargs):
+            cmd_str = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
+            if "is-active" in cmd_str:
+                return (1, "inactive")
+            return (0, "wlan0 connected")
+        mock_run.side_effect = run_side_effect
         set_managed_mode("wlan0")
 
         called_cmds = [call_args[0][0] if isinstance(call_args[0][0], list) else call_args[0][0] for call_args in mock_run.call_args_list]
@@ -66,6 +72,27 @@ class TestMonitorModeCleanup(unittest.TestCase):
         self.assertTrue(any("iw dev wlan0 set type managed" in s for s in flattened))
         self.assertTrue(any("nmcli device set wlan0 managed yes" in s for s in flattened))
         self.assertTrue(any("systemctl restart NetworkManager" in s for s in flattened))
+
+    @patch("cafe_chameleon.scanners.air.mode.wait_for_carrier")
+    @patch("cafe_chameleon.scanners.air.mode._run")
+    @patch("shutil.which")
+    def test_set_managed_mode_preserves_active_services(self, mock_which, mock_run, mock_carrier):
+        mock_which.side_effect = lambda cmd: "/usr/bin/" + cmd if cmd in ("airmon-ng", "systemctl") else None
+        # When is-active returns 0 (already active), it preserves running services
+        def run_side_effect(cmd, **kwargs):
+            cmd_str = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
+            if "is-active" in cmd_str:
+                return (0, "active")
+            return (0, "wlan0 connected")
+        mock_run.side_effect = run_side_effect
+        set_managed_mode("wlan0")
+
+        called_cmds = [call_args[0][0] if isinstance(call_args[0][0], list) else call_args[0][0] for call_args in mock_run.call_args_list]
+        flattened = [" ".join(c) if isinstance(c, list) else str(c) for c in called_cmds]
+
+        self.assertTrue(any("iw dev wlan0 set type managed" in s for s in flattened))
+        self.assertTrue(any("nmcli device set wlan0 managed yes" in s for s in flattened))
+        self.assertFalse(any("systemctl restart NetworkManager" in s for s in flattened))
 
     @patch("cafe_chameleon.network.deauth.set_managed_mode")
     @patch("cafe_chameleon.network.deauth.set_monitor_mode")
@@ -79,15 +106,17 @@ class TestMonitorModeCleanup(unittest.TestCase):
         mock_run.side_effect = KeyboardInterrupt("Ctrl+C during deauth")
 
         with self.assertRaises(KeyboardInterrupt):
-            send_deauth("00:11:22:33:44:55", "aa:bb:cc:dd:ee:ff", interface="wlan0")
+            send_deauth("00:11:22:33:44:55", "aa:bb:cc:dd:ee:ff", interface="wlan0", security="WPA2")
 
         mock_set_managed.assert_called_with("wlan0")
 
+    @patch("cafe_chameleon.scanners.air.sniffer.AirCountdownTimer")
+    @patch("cafe_chameleon.scanners.air.sniffer.auto_detect_network_params", return_value={"interface": "wlan0", "local_mac": "00:11:22:33:44:55"})
     @patch("cafe_chameleon.scanners.air.sniffer.set_managed_mode")
     @patch("cafe_chameleon.scanners.air.sniffer.set_monitor_mode")
     @patch("cafe_chameleon.scanners.air.sniffer.ChannelHopper")
     @patch("scapy.all.sniff", create=True)
-    def test_sniff_air_clients_restores_managed_on_air_skip(self, mock_sniff, mock_hopper_cls, mock_set_mon, mock_set_managed):
+    def test_sniff_air_clients_restores_managed_on_air_skip(self, mock_sniff, mock_hopper_cls, mock_set_mon, mock_set_managed, mock_auto_params, mock_timer_cls):
         mock_set_mon.return_value = "wlan0"
         mock_hopper = MagicMock()
         mock_hopper_cls.return_value = mock_hopper
@@ -98,11 +127,14 @@ class TestMonitorModeCleanup(unittest.TestCase):
         mock_hopper.stop.assert_called()
         mock_set_managed.assert_called_with("wlan0")
 
+    @patch("cafe_chameleon.network.hijack.restore.send_gratuitous_arp")
+    @patch("cafe_chameleon.network.hijack.restore.reset_mac_address")
+    @patch("cafe_chameleon.network.hijack.restore.get_active_profile", return_value="TestProfile")
     @patch("cafe_chameleon.scanners.air.set_managed_mode")
     @patch("cafe_chameleon.scanners.air.is_monitor_mode_active")
     @patch("cafe_chameleon.network.hijack.restore._run")
     @patch("cafe_chameleon.network.hijack.restore.wait_for_carrier")
-    def test_restore_checks_and_restores_monitor_mode(self, mock_carrier, mock_run, mock_is_mon, mock_set_managed):
+    def test_restore_checks_and_restores_monitor_mode(self, mock_carrier, mock_run, mock_is_mon, mock_set_managed, mock_profile, mock_reset_mac, mock_garp):
         mock_is_mon.return_value = True
         mock_run.return_value = (0, "")
         restore("wlan0", "00:11:22:33:44:55", "10.0.0.5/24", "10.0.0.255", "10.0.0.1")
@@ -121,10 +153,11 @@ class TestMonitorModeCleanup(unittest.TestCase):
         restore_auto("MyWiFi")
         mock_set_managed.assert_called_with("wlan0")
 
+    @patch("cafe_chameleon.scanners.detector.auto_detect.has_internet", return_value=True)
     @patch("cafe_chameleon.scanners.air.is_monitor_mode_active")
     @patch("cafe_chameleon.scanners.air.set_managed_mode")
     @patch("cafe_chameleon.scanners.detector.auto_detect._run")
-    def test_auto_detect_restores_monitor_interface(self, mock_run, mock_set_managed, mock_is_mon):
+    def test_auto_detect_restores_monitor_interface(self, mock_run, mock_set_managed, mock_is_mon, mock_has_net):
         mock_is_mon.return_value = True
         mock_run.return_value = (0, "")
         params = auto_detect_network_params(target_iface="wlan0")

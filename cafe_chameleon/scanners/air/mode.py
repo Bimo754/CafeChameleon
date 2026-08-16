@@ -79,11 +79,17 @@ def set_managed_mode(interface: str = "wlan0") -> None:
     _run(["nmcli", "device", "set", interface, "managed", "yes"], debug=False)
 
     if shutil.which("systemctl"):
-        _run(["systemctl", "restart", "wpa_supplicant"], debug=False)
-        _run(["systemctl", "restart", "NetworkManager"], debug=False)
+        rc_nm, _ = _run(["systemctl", "is-active", "--quiet", "NetworkManager"], debug=False)
+        rc_wpa, _ = _run(["systemctl", "is-active", "--quiet", "wpa_supplicant"], debug=False)
+        if rc_nm != 0 or rc_wpa != 0:
+            _run(["systemctl", "restart", "wpa_supplicant"], debug=False)
+            _run(["systemctl", "restart", "NetworkManager"], debug=False)
     elif shutil.which("service"):
-        _run(["service", "wpa_supplicant", "restart"], debug=False)
-        _run(["service", "NetworkManager", "restart"], debug=False)
+        rc_nm, _ = _run(["service", "NetworkManager", "status"], debug=False)
+        rc_wpa, _ = _run(["service", "wpa_supplicant", "status"], debug=False)
+        if rc_nm != 0 or rc_wpa != 0:
+            _run(["service", "wpa_supplicant", "restart"], debug=False)
+            _run(["service", "NetworkManager", "restart"], debug=False)
 
     start_t = time.time()
     while time.time() - start_t < 10:

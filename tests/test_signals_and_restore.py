@@ -29,19 +29,25 @@ class TestSignalsAndRestoreCleanup(unittest.TestCase):
         mock_run.return_value = (0, "")
         mock_reset_mac.return_value = True
 
-        restore_and_exit("Testing exit")
+        orig_sigint = signal.getsignal(signal.SIGINT)
+        orig_sigterm = signal.getsignal(signal.SIGTERM)
+        try:
+            restore_and_exit("Testing exit")
 
-        # Verify SIGINT and SIGTERM were shielded (set to SIG_IGN)
-        self.assertEqual(signal.getsignal(signal.SIGINT), signal.SIG_IGN)
-        self.assertEqual(signal.getsignal(signal.SIGTERM), signal.SIG_IGN)
+            # Verify SIGINT and SIGTERM were shielded (set to SIG_IGN)
+            self.assertEqual(signal.getsignal(signal.SIGINT), signal.SIG_IGN)
+            self.assertEqual(signal.getsignal(signal.SIGTERM), signal.SIG_IGN)
 
-        # Verify monitor mode cleanup
-        mock_set_managed.assert_called_with("wlan0")
+            # Verify monitor mode cleanup
+            mock_set_managed.assert_called_with("wlan0")
 
-        # Verify fallback MAC reset and pkill dhclient
-        mock_reset_mac.assert_called()
-        mock_close.assert_called_once()
-        mock_exit.assert_called_once_with(0)
+            # Verify fallback MAC reset and pkill dhclient
+            mock_reset_mac.assert_called()
+            mock_close.assert_called_once()
+            mock_exit.assert_called_once_with(0)
+        finally:
+            signal.signal(signal.SIGINT, orig_sigint)
+            signal.signal(signal.SIGTERM, orig_sigterm)
 
     @patch("os._exit")
     @patch("cafe_chameleon.utils.signals.close_xterm")
@@ -117,12 +123,14 @@ class TestSignalsAndRestoreCleanup(unittest.TestCase):
         select_bssid_interactively("MyWiFi")
         mock_restore_exit.assert_called_with("Ctrl+C received during BSSID selection.")
 
+    @patch("cafe_chameleon.scanners.air.sniffer.AirCountdownTimer")
+    @patch("cafe_chameleon.scanners.air.sniffer.auto_detect_network_params", return_value={"interface": "wlan0", "local_mac": "00:11:22:33:44:55"})
     @patch("cafe_chameleon.scanners.air.sniffer.set_managed_mode")
     @patch("cafe_chameleon.scanners.air.sniffer.set_monitor_mode")
     @patch("cafe_chameleon.scanners.air.sniffer.ChannelHopper")
     @patch("cafe_chameleon.scanners.air.sniffer.log_air")
     @patch("scapy.all.sniff", create=True)
-    def test_sniff_air_clients_logs_ctrl_c(self, mock_sniff, mock_log_air, mock_hopper_cls, mock_set_mon, mock_set_managed):
+    def test_sniff_air_clients_logs_ctrl_c(self, mock_sniff, mock_log_air, mock_hopper_cls, mock_set_mon, mock_set_managed, mock_auto_params, mock_timer_cls):
         mock_set_mon.return_value = "wlan0"
         mock_hopper = MagicMock()
         mock_hopper_cls.return_value = mock_hopper
