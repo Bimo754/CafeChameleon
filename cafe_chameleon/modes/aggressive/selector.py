@@ -63,22 +63,21 @@ def display_and_select_bssid(
         reverse=True
     )
 
-    has_active_any = any(count_active_clients(b.get("bssid", ""), air_clients_map) > 0 for b in bssids) if air_clients_map else False
-
-    log_main("\n\033[1;38;5;215m── AUTO-RANKED BSSID TARGETS ──────────────────────────────────────────\033[0m")
-    for rank, b in enumerate(bssids, start=1):
-        score, clients, sig = calculate_bssid_score(b, air_clients_map, prioritize_clients=prioritize_clients)
-        active_cnt = count_active_clients(b.get("bssid", ""), air_clients_map)
-        sec_str = b.get("security") or "OPEN"
-        active_str = f" │ \033[1;37mActive:\033[0m \033[1;32m{active_cnt:<2}\033[0m" if (has_active_any or active_cnt > 0) else ""
-        log_main(f" #{rank:<2} │ \033[1;37mBSSID:\033[0m {b['bssid']} │ \033[1;37mScore:\033[0m {score:<4} │ \033[1;37mClients:\033[0m {clients:<2}{active_str} │ \033[1;37mSig:\033[0m {sig}% │ \033[1;37mCh:\033[0m {b['chan']} │ \033[1;37mSec:\033[0m {sec_str}")
-    log_main("\033[1;30m────────────────────────────────────────────────────────────────────────\033[0m\n")
-
     if not select_requested:
+        has_active_any = any(count_active_clients(b.get("bssid", ""), air_clients_map) > 0 for b in bssids) if air_clients_map else False
+
+        log_main("\n\033[1;38;5;215m── AUTO-RANKED BSSID TARGETS ──────────────────────────────────────────\033[0m")
+        for rank, b in enumerate(bssids, start=1):
+            _score, clients, sig = calculate_bssid_score(b, air_clients_map, prioritize_clients=prioritize_clients)
+            active_cnt = count_active_clients(b.get("bssid", ""), air_clients_map)
+            sec_str = b.get("security") or "OPEN"
+            active_str = f" │ \033[1;37mActive:\033[0m \033[1;32m{active_cnt:<2}\033[0m" if (has_active_any or active_cnt > 0) else ""
+            log_main(f" #{rank:<2} │ \033[1;37mBSSID:\033[0m {b['bssid']} │ \033[1;37mClients:\033[0m {clients:<2}{active_str} │ \033[1;37mSig:\033[0m {sig}% │ \033[1;37mCh:\033[0m {b['chan']} │ \033[1;37mSec:\033[0m {sec_str}")
+        log_main("\033[1;30m────────────────────────────────────────────────────────────────────────\033[0m\n")
         return bssids
 
     # If direct selection string was provided via CLI (e.g. -s 1,2,7 or -s 1-10,12)
-    if isinstance(select_requested, str) and select_requested.strip() and select_requested.strip().lower() not in ("true", "1"):
+    if isinstance(select_requested, str) and select_requested.strip() and select_requested.strip().lower() != "true":
         selected_indices = parse_target_selection(select_requested, len(bssids))
         if selected_indices:
             selected_bssids = [bssids[i - 1] for i in selected_indices]

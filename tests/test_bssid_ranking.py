@@ -251,6 +251,42 @@ class TestBSSIDRanking(unittest.TestCase):
         result = display_and_select_bssid(bssids, air_clients_map={}, select_requested=True)
         self.assertEqual(len(result), 4)
 
+    @patch("cafe_chameleon.modes.aggressive.selector.log_main")
+    def test_display_and_select_bssid_auto_ranked_has_no_score(self, mock_log_main):
+        bssids = [
+            {"bssid": "00:11:22:33:44:01", "signal": "90", "chan": "1", "security": "WPA2"}
+        ]
+        display_and_select_bssid(bssids, air_clients_map={}, select_requested=False)
+        logged_texts = [call.args[0] for call in mock_log_main.call_args_list if call.args]
+        # Should print AUTO-RANKED BSSID TARGETS
+        self.assertTrue(any("AUTO-RANKED BSSID TARGETS" in text for text in logged_texts))
+        # Should NOT include Score in any output
+        self.assertFalse(any("Score:" in text for text in logged_texts))
+
+    @patch("cafe_chameleon.modes.aggressive.selector.log_main")
+    def test_display_and_select_bssid_no_auto_ranked_when_select_requested_direct(self, mock_log_main):
+        bssids = [
+            {"bssid": "00:11:22:33:44:01", "signal": "90", "chan": "1", "security": "WPA2"}
+        ]
+        display_and_select_bssid(bssids, air_clients_map={}, select_requested="1")
+        logged_texts = [call.args[0] for call in mock_log_main.call_args_list if call.args]
+        # Should NOT print AUTO-RANKED BSSID TARGETS
+        self.assertFalse(any("AUTO-RANKED BSSID TARGETS" in text for text in logged_texts))
+
+    @patch("cafe_chameleon.modes.aggressive.selector.get_user_input")
+    @patch("cafe_chameleon.modes.aggressive.selector.log_main")
+    def test_display_and_select_bssid_no_auto_ranked_when_select_requested_interactive(self, mock_log_main, mock_input):
+        mock_input.return_value = "1"
+        bssids = [
+            {"bssid": "00:11:22:33:44:01", "signal": "90", "chan": "1", "security": "WPA2"}
+        ]
+        display_and_select_bssid(bssids, air_clients_map={}, select_requested=True)
+        logged_texts = [call.args[0] for call in mock_log_main.call_args_list if call.args]
+        # Should NOT print AUTO-RANKED BSSID TARGETS
+        self.assertFalse(any("AUTO-RANKED BSSID TARGETS" in text for text in logged_texts))
+        # Should print BSSID SELECTION LIST
+        self.assertTrue(any("BSSID SELECTION LIST" in text for text in logged_texts))
+
 
 if __name__ == "__main__":
     unittest.main()
