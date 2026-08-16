@@ -80,6 +80,13 @@ CafeChameleon provides a structured testbed to evaluate these attack surfaces an
 * **Interface Release (`--release`)**: Completely unlocks the wireless interface (teardown monitor mode, terminate DHCP clients, restore NetworkManager).
 * **Connection Status (`-s` / `--status`)**: Queries current BSSID lock configurations, active profiles, and link parameters.
 
+### Blacklist Manager (`blacklist`)
+* **Target Exclusion**: Automatically excludes blacklisted client MACs and Access Point BSSIDs in both `simple` and `aggressive` modes.
+* **Persistent Storage**: Saves blacklisted MACs permanently to `blacklist.txt`.
+* **Add to Blacklist (`add <mac>`)**: Adds a specific MAC address to the blacklist.
+* **Remove from Blacklist (`remove <mac>`)**: Removes a MAC address from the blacklist.
+* **List Blacklist (`list`)**: Displays all currently blacklisted MAC addresses.
+
 ### Multi-Window Telemetry Engine
 * Centered multi-window terminal layout separating Air Sniffing, Subnet Scanning, and Session Takeover outputs.
 * Isolated FIFO communication queues preventing blocking across asynchronous subsystems.
@@ -104,6 +111,7 @@ CafeChameleon/
 │   ├── models/           # Strongly-typed network and BSSID data models
 │   ├── modes/
 │   │   ├── aggressive/   # Multi-BSSID roaming, signal ranking, air target handler
+│   │   ├── blacklist/    # Permanent MAC address and BSSID blacklist manager
 │   │   ├── simple/       # Subnet scanner, subnet takeover, ARP impersonator
 │   │   └── wifi/         # NetworkManager connection and BSSID controller
 │   ├── network/          # Linux sysfs polling, MAC spoofing, DHCP, deauth, and nmcli
@@ -207,6 +215,18 @@ sudo python3 main.py wifi --reconnect
 
 # Continuously auto-reconnect to BSSID whenever connection drops or disconnects
 sudo python3 main.py wifi --reconnect auto
+```
+
+### Blacklist Management (`blacklist`)
+```bash
+# Add a MAC address permanently to the blacklist
+python3 main.py blacklist add 00:11:22:33:44:55
+
+# Remove a MAC address from the blacklist
+python3 main.py blacklist remove 00:11:22:33:44:55
+
+# List all blacklisted MAC addresses saved in blacklist.txt
+python3 main.py blacklist list
 ```
 
 ### Running Test Suite

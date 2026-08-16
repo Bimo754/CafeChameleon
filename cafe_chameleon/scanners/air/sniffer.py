@@ -244,6 +244,11 @@ def sniff_air_clients(
     if local_mac:
         ignore_macs.add(local_mac)
     ignore_macs.update(target_bssids_set)
+    try:
+        from cafe_chameleon.utils.blacklist import load_blacklist
+        ignore_macs.update(load_blacklist())
+    except Exception:
+        pass
 
     hopper = None
     client_metadata = {}

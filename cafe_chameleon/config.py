@@ -5,6 +5,7 @@ cafe_chameleon.config - Central application constants, timeout budgets, and defa
 FIFO_DIR: str = "/tmp/captive_xterm_fifos"
 EVENT_FILE: str = "/tmp/captive_xterm_fifos/last_ctrl_c.event"
 TRACE_FILE: str = "cafe_chameleon_trace.log"
+BLACKLIST_FILE: str = "blacklist.txt"
 
 DEFAULT_BSSID_THRESHOLD: int = 10
 DEFAULT_AIR_DURATION: int = 45

@@ -6,6 +6,7 @@ Subcommands:
   simple     - Hijack sessions using subnet blocks ping scanning
   aggressive - Hijack sessions of Multi-BSSID networks using AP roaming & air target discovery
   wifi       - Hijack session connectivity & hardware properties management
+  blacklist  - Permanent MAC address & BSSID blacklist manager
 """
 
 from cafe_chameleon.cli.parser import parse_arguments
@@ -20,6 +21,7 @@ from cafe_chameleon.ui.colors import BOLD, GREEN, RED, YELLOW, RESET, colorize_b
 def main():
     try:
         args = parse_arguments()
+
         debug_val = getattr(args, "debug", None)
         if debug_val:
             set_debug(debug_val)
@@ -36,16 +38,15 @@ def main():
         if warn_msg:
             print(colorize_brackets(f"{YELLOW}[!] {warn_msg}{RESET}"))
 
-        if getattr(args, "no_xterm", False):
+        cmd = getattr(args, "command", "")
+
+        if getattr(args, "no_xterm", False) or cmd in ("wifi", "blacklist"):
             set_use_xterm(False)
         else:
-            cmd = getattr(args, "command", "")
             has_air = getattr(args, "air", None) is not None
             has_air_only = getattr(args, "air_only", None) is not None
 
-            if cmd == "wifi":
-                active_windows = []
-            elif cmd == "simple":
+            if cmd == "simple":
                 active_windows = ["air", "scan", "hijack"] if (has_air or has_air_only) else ["scan", "hijack"]
             elif cmd == "aggressive":
                 if has_air_only:

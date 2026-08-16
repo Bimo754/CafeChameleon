@@ -1,3 +1,3 @@
 """
-Subcommand handlers (simple, aggressive, wifi).
+Subcommand handlers (simple, aggressive, wifi, blacklist).
 """

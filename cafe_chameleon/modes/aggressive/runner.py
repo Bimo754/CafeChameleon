@@ -43,6 +43,7 @@ from cafe_chameleon.scanners.air import (
 from .selector import display_and_select_bssid
 from .air_target_handler import filter_valid_air_clients, test_air_client_targets
 from cafe_chameleon.network.hotspot import share_wifi_hotspot
+from cafe_chameleon.utils.blacklist import is_blacklisted, load_blacklist
 
 
 def handle_auto_share_if_requested(args, interface: str) -> None:
@@ -121,6 +122,16 @@ def run_aggressive(args) -> bool:
         log_main(f"[-] No BSSIDs found for SSID '{ssid}'.")
         return False
 
+    blacklist = load_blacklist()
+    orig_bssid_count = len(bssids)
+    bssids = [b for b in bssids if not is_blacklisted(b.get("bssid", ""), blacklist)]
+    if len(bssids) < orig_bssid_count:
+        log_main(f"[i] Filtered out {orig_bssid_count - len(bssids)} blacklisted BSSID(s).")
+
+    if not bssids:
+        log_main(f"[-] All discovered BSSIDs for SSID '{ssid}' are blacklisted.")
+        return False
+
     log_main(f"[+] Discovered {len(bssids)} BSSID(s) for '{ssid}'")
 
     # 3. If --air mode is enabled, sniff over-the-air Dot11 frames in monitor mode FIRST
@@ -190,6 +201,11 @@ def run_aggressive(args) -> bool:
 
     for idx, item in enumerate(bssids, start=1):
         target_bssid = item["bssid"]
+        if is_blacklisted(target_bssid, blacklist):
+            trace(f"[FEATURE] Skipping blacklisted target BSSID: {target_bssid}")
+            log_main(f"  [-] Skipping blacklisted BSSID: {target_bssid}")
+            continue
+
         signal_pct = item["signal"]
         chan = item["chan"]
         target_sec = item.get("security", "")

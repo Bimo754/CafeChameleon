@@ -3,6 +3,7 @@ cafe_chameleon.modes.aggressive.ranker - BSSID scoring and auto-selection rankin
 """
 
 import re
+from cafe_chameleon.utils.blacklist import is_blacklisted, load_blacklist
 
 DIGIT_REGEX = re.compile(r"[^\d]")
 
@@ -12,6 +13,8 @@ def is_client_active(mac: str, air_clients_map: dict | None = None) -> bool:
     if not mac or not air_clients_map:
         return False
     mac_lower = mac.lower()
+    if is_blacklisted(mac_lower):
+        return False
     if hasattr(air_clients_map, "is_client_active") and callable(air_clients_map.is_client_active):
         return air_clients_map.is_client_active(mac_lower)
     if hasattr(air_clients_map, "client_metadata") and isinstance(air_clients_map.client_metadata, dict):
@@ -32,6 +35,10 @@ def count_active_clients(bssid: str, air_clients_map: dict | None = None) -> int
     if not bssid or not air_clients_map:
         return 0
     bssid_mac = bssid.lower()
+    blacklist = load_blacklist()
+    if is_blacklisted(bssid_mac, blacklist):
+        return 0
+
     if hasattr(air_clients_map, "count_active_clients") and callable(air_clients_map.count_active_clients):
         return air_clients_map.count_active_clients(bssid_mac)
 
@@ -39,7 +46,7 @@ def count_active_clients(bssid: str, air_clients_map: dict | None = None) -> int
     if not isinstance(clients_dict, dict):
         return 0
 
-    return sum(1 for mac in clients_dict if is_client_active(mac, air_clients_map))
+    return sum(1 for mac in clients_dict if not is_blacklisted(mac, blacklist) and is_client_active(mac, air_clients_map))
 
 
 def get_active_clients_for_bssid(bssid: str, air_clients_map: dict | None = None) -> list[str]:
@@ -47,6 +54,10 @@ def get_active_clients_for_bssid(bssid: str, air_clients_map: dict | None = None
     if not bssid or not air_clients_map:
         return []
     bssid_mac = bssid.lower()
+    blacklist = load_blacklist()
+    if is_blacklisted(bssid_mac, blacklist):
+        return []
+
     if hasattr(air_clients_map, "get_active_clients_for_bssid") and callable(air_clients_map.get_active_clients_for_bssid):
         return air_clients_map.get_active_clients_for_bssid(bssid_mac)
 
@@ -54,7 +65,7 @@ def get_active_clients_for_bssid(bssid: str, air_clients_map: dict | None = None
     if not isinstance(clients_dict, dict):
         return []
 
-    return [mac for mac in clients_dict if is_client_active(mac, air_clients_map)]
+    return [mac for mac in clients_dict if not is_blacklisted(mac, blacklist) and is_client_active(mac, air_clients_map)]
 
 
 def calculate_bssid_score(
@@ -74,6 +85,7 @@ def calculate_bssid_score(
       3. Signal strength percentage (tertiary tie-breaker)
     """
     bssid_mac = bssid_item["bssid"].lower()
+    blacklist = load_blacklist()
 
     try:
         clean_sig = DIGIT_REGEX.sub("", str(bssid_item.get("signal", 0)))
@@ -85,7 +97,7 @@ def calculate_bssid_score(
     if air_clients_map and bssid_mac in air_clients_map:
         clients_val = air_clients_map[bssid_mac]
         if isinstance(clients_val, dict):
-            client_count = len(clients_val)
+            client_count = sum(1 for m in clients_val if not is_blacklisted(m, blacklist))
 
     active_count = count_active_clients(bssid_mac, air_clients_map)
     idle_count = max(0, client_count - active_count)

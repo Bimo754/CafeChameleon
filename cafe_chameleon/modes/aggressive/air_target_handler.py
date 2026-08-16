@@ -25,6 +25,7 @@ from cafe_chameleon.network.dhcp import query_dhcp_lease_ip
 from cafe_chameleon.network.mac import set_mac_address
 from cafe_chameleon.network.nmcli import lock_bssid
 from cafe_chameleon.scanners.resolver import resolve_mac_to_ip, is_valid_ipv4
+from cafe_chameleon.utils.blacklist import is_blacklisted, load_blacklist
 from .ranker import is_client_active
 
 
@@ -55,9 +56,12 @@ def filter_valid_air_clients(
     gw_mac_clean = (auto_params.get("gateway_mac") or "").lower()
     local_mac_clean = (auto_params.get("local_mac") or "").lower()
     all_bssids_clean = {b["bssid"].lower() for b in bssids}
+    blacklist = load_blacklist()
 
     def is_valid_client(m_clean):
         if m_clean in tried_macs or m_clean in all_bssids_clean or m_clean == gw_mac_clean or m_clean == local_mac_clean:
+            return False
+        if is_blacklisted(m_clean, blacklist):
             return False
         if m_clean.startswith("01:00:5e") or m_clean.startswith("33:33") or m_clean.startswith("00:00:5e") or m_clean.startswith("02:00:00"):
             return False
@@ -119,9 +123,12 @@ def test_air_client_targets(
     set_restore_params(interface, local_mac, ipmask, broadcast, gw_ip, callback=restore, profile=profile)
 
     force_deauth = getattr(args, "force_deauth", False)
+    blacklist = load_blacklist()
 
     for client_mac, client_ip in ordered_clients.items():
         try:
+            if is_blacklisted(client_mac, blacklist):
+                continue
             tried_macs.add(client_mac.lower())
             is_active = is_client_active(client_mac, air_clients_map)
             active_tag = " [ACTIVE DATA SESSION]" if is_active else ""

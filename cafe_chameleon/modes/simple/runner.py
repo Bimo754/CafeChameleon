@@ -24,6 +24,7 @@ from cafe_chameleon.scanners.air import is_monitor_mode_active, set_managed_mode
 
 from .subnet_helper import prepare_target_subnet, split_subnets_into_blocks
 from .takeover import test_discovered_hosts
+from cafe_chameleon.utils.blacklist import is_blacklisted, load_blacklist
 
 
 def run_simple(args, quiet_header: bool = False) -> bool:
@@ -93,8 +94,14 @@ def run_simple(args, quiet_header: bool = False) -> bool:
 
                 unique_hosts = []
                 seen_ips = {h["ip"] for h in discovered_devices}
+                blacklist = load_blacklist()
                 for h in hosts:
                     if h["ip"] == local_ip:
+                        continue
+                    if is_blacklisted(h.get("mac", ""), blacklist):
+                        trace(f"[FEATURE] Skipping blacklisted host MAC: {h['mac']} (IP: {h['ip']})")
+                        log_scan(f"  [-] Blacklisted host skipped: {h['ip']} ({h['mac']})")
+                        log_main(f"  [-] Blacklisted host skipped: {h['ip']} ({h['mac']})")
                         continue
                     if h["ip"] not in seen_ips:
                         seen_ips.add(h["ip"])

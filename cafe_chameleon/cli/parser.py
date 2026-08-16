@@ -7,6 +7,7 @@ import argparse
 from cafe_chameleon.modes.simple import run_simple
 from cafe_chameleon.modes.aggressive import run_aggressive
 from cafe_chameleon.modes.wifi import run_wifi
+from cafe_chameleon.modes.blacklist import run_blacklist
 from cafe_chameleon.ui.colors import BOLD, CYAN, YELLOW, RESET
 
 
@@ -70,8 +71,8 @@ class CleanHelpFormatter(argparse.HelpFormatter):
         return super()._format_usage(usage, actions, groups, prefix)
 
 
-def parse_arguments():
-    # Common execution flags shared across all commands (including wifi)
+def parse_arguments(args=None):
+    # Common execution flags shared across all commands (including wifi and blacklist)
     common_parser = argparse.ArgumentParser(add_help=False, argument_default=argparse.SUPPRESS)
     common_exec = common_parser.add_argument_group("Global Flags")
     common_exec.add_argument("-q", "--quiet", action="store_true", help="Suppress info logs")
@@ -195,4 +196,27 @@ def parse_arguments():
     )
     wifi_p.set_defaults(func=run_wifi)
 
-    return parser.parse_args()
+    # blacklist subcommand (uses common_parser ONLY)
+    blacklist_p = subparsers.add_parser(
+        "blacklist",
+        help="Permanent MAC address & BSSID blacklist manager",
+        usage="cafe-chameleon blacklist <action> [MAC]",
+        description=f"{BOLD}{CYAN}Blacklist Manager{RESET} ─ Permanent MAC address & BSSID blacklist manager",
+        formatter_class=CleanHelpFormatter,
+        parents=[common_parser],
+        add_help=False
+    )
+    bl_grp = blacklist_p.add_argument_group("Actions")
+    bl_grp.add_argument(
+        "action_args",
+        nargs="*",
+        metavar="ACTION [MAC]",
+        help="Blacklist action ('add <mac>', 'remove <mac>', or 'list')"
+    )
+    bl_grp.add_argument("--add", "-a", dest="add_mac", metavar="MAC", help="Add MAC address to blacklist")
+    bl_grp.add_argument("--remove", "-r", "--rm", dest="remove_mac", metavar="MAC", help="Remove MAC address from blacklist")
+    bl_grp.add_argument("--list", "-l", dest="list_blacklisted", action="store_true", help="List all blacklisted MAC addresses")
+    blacklist_p.set_defaults(func=run_blacklist)
+
+    parsed = parser.parse_args(args)
+    return parsed

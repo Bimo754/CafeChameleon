@@ -4,4 +4,5 @@ __pycache__/
 venv/
 todo.md
 *.log
+blacklist.txt
 .codegraph/
