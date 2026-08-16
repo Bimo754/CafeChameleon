@@ -2,11 +2,14 @@
 cafe_chameleon.modes.aggressive.selector - BSSID ranking display and target BSSID selection.
 """
 
+import re
 import sys
 
 from cafe_chameleon.ui.console import log_info, log_main, log_warning, get_user_input
 from cafe_chameleon.utils.signals import restore_and_exit, MainSkipInterrupt, WindowCtrlCInterrupt
 from .ranker import calculate_bssid_score, count_active_clients
+
+DIGIT_REGEX = re.compile(r"[^\d]")
 
 
 def parse_target_selection(selection_str: str, max_count: int) -> list[int]:
@@ -48,32 +51,66 @@ def parse_target_selection(selection_str: str, max_count: int) -> list[int]:
     return list(dict.fromkeys(indices))
 
 
+def extract_signal_int(b: dict) -> int:
+    """Extracts signal percentage integer safely."""
+    sig_raw = b.get("signal") if hasattr(b, "get") else getattr(b, "signal", None)
+    if sig_raw is None:
+        return 0
+    try:
+        clean = DIGIT_REGEX.sub("", str(sig_raw))
+        return int(clean) if clean else 0
+    except (ValueError, TypeError):
+        return 0
+
+
+def format_bssid_table(bssids: list[dict], air_clients_map: dict, header_title: str) -> str:
+    """Formats BSSIDs into a compact, non-wrapping table with BSSID, clients, active, and signal."""
+    lines = []
+    lines.append(f"\033[1;38;5;215m── {header_title} ──────────────────────────────────────\033[0m")
+    lines.append(f"{'#':<4} {'BSSID':<19} {'CLIENTS':<9} {'ACTIVE':<8} {'SIGNAL':<8}")
+    lines.append("\033[1;30m────────────────────────────────────────────────────────\033[0m")
+
+    for rank, b in enumerate(bssids, start=1):
+        bssid_mac = b.get("bssid", "") if isinstance(b, dict) else getattr(b, "bssid", "")
+        _score, clients, sig = calculate_bssid_score(b, air_clients_map)
+        active_cnt = count_active_clients(bssid_mac, air_clients_map)
+        sig_str = f"{sig}%"
+
+        if active_cnt > 0:
+            active_str = f"\033[1;32m{active_cnt:<8}\033[0m"
+        else:
+            active_str = f"{active_cnt:<8}"
+
+        lines.append(f" {rank:<3} {bssid_mac:<19} {clients:<9} {active_str} {sig_str:<8}")
+
+    lines.append("\033[1;30m────────────────────────────────────────────────────────\033[0m\n")
+    return "\n".join(lines)
+
+
 def display_and_select_bssid(
     bssids: list[dict],
     air_clients_map: dict,
     select_requested: bool | str = False,
     prioritize_clients: bool = False
 ) -> list[dict]:
-    """Sorts, prints ranked BSSIDs, and handles target BSSID selection if requested."""
+    """Sorts BSSIDs from strongest signal (or score if prioritized), renders table, and handles selection."""
     if not bssids:
         return []
 
-    bssids.sort(
-        key=lambda b: calculate_bssid_score(b, air_clients_map, prioritize_clients=prioritize_clients)[0],
-        reverse=True
-    )
+    if prioritize_clients:
+        bssids.sort(
+            key=lambda b: calculate_bssid_score(b, air_clients_map, prioritize_clients=True)[0],
+            reverse=True
+        )
+    else:
+        bssids.sort(
+            key=lambda b: extract_signal_int(b),
+            reverse=True
+        )
 
     if not select_requested:
-        has_active_any = any(count_active_clients(b.get("bssid", ""), air_clients_map) > 0 for b in bssids) if air_clients_map else False
-
-        log_main("\n\033[1;38;5;215m── AUTO-RANKED BSSID TARGETS ──────────────────────────────────────────\033[0m")
-        for rank, b in enumerate(bssids, start=1):
-            _score, clients, sig = calculate_bssid_score(b, air_clients_map, prioritize_clients=prioritize_clients)
-            active_cnt = count_active_clients(b.get("bssid", ""), air_clients_map)
-            sec_str = b.get("security") or "OPEN"
-            active_str = f" │ \033[1;37mActive:\033[0m \033[1;32m{active_cnt:<2}\033[0m" if (has_active_any or active_cnt > 0) else ""
-            log_main(f" #{rank:<2} │ \033[1;37mBSSID:\033[0m {b['bssid']} │ \033[1;37mClients:\033[0m {clients:<2}{active_str} │ \033[1;37mSig:\033[0m {sig}% │ \033[1;37mCh:\033[0m {b['chan']} │ \033[1;37mSec:\033[0m {sec_str}")
-        log_main("\033[1;30m────────────────────────────────────────────────────────────────────────\033[0m\n")
+        table_output = format_bssid_table(bssids, air_clients_map, "AUTO-RANKED BSSID TARGETS")
+        log_main(table_output, clear=True)
         return bssids
 
     # If direct selection string was provided via CLI (e.g. -s 1,2,7 or -s 1-10,12)
@@ -83,30 +120,21 @@ def display_and_select_bssid(
             selected_bssids = [bssids[i - 1] for i in selected_indices]
             bssid_list_str = ", ".join(b["bssid"] for b in selected_bssids)
             log_info(f"Targeting {len(selected_bssids)} selected BSSID(s): {bssid_list_str}")
-            log_main(f"[+] Targeted {len(selected_bssids)} selected BSSID(s) out of {len(bssids)}")
             return selected_bssids
         else:
             log_warning(f"Invalid BSSID selection '{select_requested}'. Falling back to interactive selection.")
 
-    log_main("\n\033[1;38;5;215m── BSSID SELECTION LIST (Press CTRL+C in xterm or 'q' to exit) ────────\033[0m")
-    for i, b in enumerate(bssids, start=1):
-        score, clients, sig = calculate_bssid_score(b, air_clients_map, prioritize_clients=prioritize_clients)
-        active_cnt = count_active_clients(b.get("bssid", ""), air_clients_map)
-        sec_str = b.get("security") or "OPEN"
-        active_suffix = f", \033[1;32mActive:\033[0m {active_cnt}" if active_cnt > 0 else ""
-        log_main(f"  [{i}] {b['bssid']} (\033[1;37mClients:\033[0m {clients}{active_suffix}, \033[1;37mSignal:\033[0m {sig}%, \033[1;37mChannel:\033[0m {b['chan']}, \033[1;37mSecurity:\033[0m {sec_str})")
-    log_main("\033[1;30m────────────────────────────────────────────────────────────────────────\033[0m\n")
+    table_output = format_bssid_table(bssids, air_clients_map, "BSSID SELECTION LIST")
+    log_main(table_output, clear=True)
 
     while True:
         try:
-            prompt_str = f"\033[93m[?] Enter target BSSID(s) [e.g. 1, 1,2,7, 1-10,12, default: 1-{len(bssids)}, 'q' or CTRL+C in xterm to exit]: \033[0m"
+            prompt_str = f"\033[93m[?] Target BSSID(s) [1-{len(bssids)}, 'q' to exit]: \033[0m"
             val = get_user_input(prompt_str).strip()
             if val.lower() in ("q", "quit", "exit"):
                 restore_and_exit("User requested exit at BSSID selection.")
                 return bssids
             if not val:
-                log_info(f"Targeting all {len(bssids)} BSSID(s)")
-                log_main(f"[+] Targeting all {len(bssids)} BSSID(s)")
                 return bssids
 
             selected_indices = parse_target_selection(val, len(bssids))
@@ -114,7 +142,6 @@ def display_and_select_bssid(
                 selected_bssids = [bssids[i - 1] for i in selected_indices]
                 bssid_list_str = ", ".join(b["bssid"] for b in selected_bssids)
                 log_info(f"Selected {len(selected_bssids)} target BSSID(s): {bssid_list_str}")
-                log_main(f"[+] Selected {len(selected_bssids)} target BSSID(s) out of {len(bssids)}")
                 return selected_bssids
             else:
                 log_warning(f"Invalid selection '{val}'. Enter numbers/ranges between 1 and {len(bssids)}.")

@@ -114,7 +114,7 @@ class XtermManager:
         for name in self.active_windows:
             fifo_path = self.fifos[name]
             try:
-                fd = os.open(fifo_path, os.O_WRONLY)
+                fd = os.open(fifo_path, os.O_WRONLY | os.O_NONBLOCK)
                 self.handles[name] = os.fdopen(fd, "w", buffering=1)
             except Exception:
                 pass
@@ -149,7 +149,7 @@ class XtermManager:
             self.main_status = status
         if not self.enabled or self.closing or "main" not in self.active_windows:
             return
-        handle = self.handles.get("main")
+        handle = self._ensure_handle("main")
         if handle:
             try:
                 sec = format_main_header(self.main_interface, self.main_profile, self.main_ssid, self.main_status)
@@ -172,7 +172,7 @@ class XtermManager:
                 self.air_remaining = f"{r_str}s" if r_str.isdigit() else r_str
         if not self.enabled or self.closing or "air" not in self.active_windows:
             return
-        handle = self.handles.get("air")
+        handle = self._ensure_handle("air")
         if handle:
             try:
                 sec = format_air_header(self.air_mode, self.air_remaining)
@@ -187,7 +187,7 @@ class XtermManager:
 
     def set_hijack_status(self, ip=_DEFAULT, mac=_DEFAULT, technique: str | None = None, clear_section2: bool = False) -> None:
         if ip is not _DEFAULT:
-            if ip is None or str(ip).strip() == "" or str(ip).strip().lower() in ("not found", "none", "n/a"):
+            if ip is None or str(ip).strip() == "" or str(ip).strip().lower() in ("none", "not found", "n/a"):
                 self.hijack_ip = None
             else:
                 try:
@@ -199,7 +199,7 @@ class XtermManager:
                 except Exception:
                     self.hijack_ip = str(ip)
         if mac is not _DEFAULT:
-            if mac is None or str(mac).strip() == "" or str(mac).strip().lower() in ("not found", "none", "n/a"):
+            if mac is None or str(mac).strip() == "" or str(mac).strip().lower() in ("none", "not found", "n/a"):
                 self.hijack_mac = None
             else:
                 self.hijack_mac = str(mac).strip()
@@ -207,7 +207,7 @@ class XtermManager:
             self.hijack_technique = str(technique) if technique else "Idle"
         if not self.enabled or self.closing or "hijack" not in self.active_windows:
             return
-        handle = self.handles.get("hijack")
+        handle = self._ensure_handle("hijack")
         if handle:
             try:
                 sec = format_hijack_header(self.hijack_ip, self.hijack_mac, self.hijack_technique)
@@ -223,7 +223,7 @@ class XtermManager:
     def clear_hijack_section2(self) -> None:
         if not self.enabled or self.closing or "hijack" not in self.active_windows:
             return
-        handle = self.handles.get("hijack")
+        handle = self._ensure_handle("hijack")
         if handle:
             try:
                 default_color = self.window_default_colors.get("hijack", "\033[0m")
@@ -241,7 +241,7 @@ class XtermManager:
             self.scan_type = str(scan_type) if (scan_type is not None and str(scan_type).strip() not in ("", "None")) else "Idle"
         if not self.enabled or self.closing or "scan" not in self.active_windows:
             return
-        handle = self.handles.get("scan")
+        handle = self._ensure_handle("scan")
         if handle:
             try:
                 sec = format_scan_header(self.scan_subnet, self.scan_hosts_count, self.scan_type)
@@ -266,14 +266,32 @@ class XtermManager:
                     return
             time.sleep(0.05)
 
+    def _ensure_handle(self, target):
+        if not self.enabled or self.closing or target not in self.active_windows:
+            return None
+        if target in self.handles:
+            h = self.handles[target]
+            if not getattr(h, "closed", False):
+                return h
+        fifo_path = self.fifos.get(target)
+        if not fifo_path:
+            return None
+        try:
+            fd = os.open(fifo_path, os.O_WRONLY | os.O_NONBLOCK)
+            h = os.fdopen(fd, "w", buffering=1)
+            self.handles[target] = h
+            return h
+        except Exception:
+            return None
+
     def write(self, target, text, clear=False, add_newline=True):
         if not self.enabled or self.closing or target not in self.active_windows:
             return False
-        handle = self.handles.get(target)
+        handle = self._ensure_handle(target)
         if handle:
             try:
                 if clear:
-                    handle.write("\033[2J\033[H")
+                    handle.write("\033[H\033[2J\033[3J")
                     header = self.window_headers.get(target, "")
                     default_color = self.window_default_colors.get(target, "\033[0m")
                     if header:
@@ -296,7 +314,11 @@ class XtermManager:
                     self.line_counts[target] += content.count("\n")
                 return True
             except Exception:
-                pass
+                try:
+                    handle.close()
+                except Exception:
+                    pass
+                self.handles.pop(target, None)
         return False
 
     def clear(self, target):

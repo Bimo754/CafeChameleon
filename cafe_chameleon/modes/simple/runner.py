@@ -100,7 +100,6 @@ def run_simple(args, quiet_header: bool = False) -> bool:
                     if is_blacklisted(h.get("mac", ""), blacklist):
                         trace(f"[FEATURE] Skipping blacklisted host MAC: {h['mac']} (IP: {h['ip']})")
                         log_scan(f"  [-] Blacklisted host skipped: {h['ip']} ({h['mac']})")
-                        log_main(f"  [-] Blacklisted host skipped: {h['ip']} ({h['mac']})")
                         continue
                     if h["ip"] not in seen_ips:
                         seen_ips.add(h["ip"])
@@ -108,7 +107,6 @@ def run_simple(args, quiet_header: bool = False) -> bool:
 
                 if unique_hosts:
                     log_scan(f"[+] Found {len(unique_hosts)} active host(s) on block {sub_str}:")
-                    log_main(f"[+] Found {len(unique_hosts)} active host(s) on block {sub_str}:")
                     for host in unique_hosts:
                         tag = ""
                         if gw_ip and host["ip"] == gw_ip:
@@ -116,7 +114,6 @@ def run_simple(args, quiet_header: bool = False) -> bool:
                         elif gw_mac and host["mac"].lower() == gw_mac.lower():
                             tag = " [GATEWAY MAC]"
                         log_scan(f"  -> {host['ip']:<15} {host['mac']}{tag}")
-                        log_main(f"  -> {host['ip']:<15} {host['mac']}{tag}")
                         discovered_devices.append(host)
 
                     set_scan_status(count=len(discovered_devices))

@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, call
 
 from cafe_chameleon.modes.aggressive.ranker import calculate_bssid_score
 from cafe_chameleon.modes.aggressive.selector import display_and_select_bssid, parse_target_selection
@@ -108,10 +108,10 @@ class TestBSSIDRanking(unittest.TestCase):
         self.assertEqual(sorted_bssids[3]["bssid"], "00:11:22:33:44:01")
 
         # With prioritize_clients=False (default):
-        # 1st: 00:11:22:33:44:01 (95% sig, 0 clients -> score 7125)
-        # 2nd: 00:11:22:33:44:04 (80% sig, 1 client -> score 6080)
-        # 3rd: 00:11:22:33:44:03 (40% sig, 1 client -> score 3080)
-        # 4th: 00:11:22:33:44:02 (30% sig, 2 clients -> score 2410)
+        # 1st: 00:11:22:33:44:01 (95% sig)
+        # 2nd: 00:11:22:33:44:04 (80% sig)
+        # 3rd: 00:11:22:33:44:03 (40% sig)
+        # 4th: 00:11:22:33:44:02 (30% sig)
         default_sorted = display_and_select_bssid(
             list(bssids),
             air_clients_map,
@@ -287,7 +287,40 @@ class TestBSSIDRanking(unittest.TestCase):
         # Should print BSSID SELECTION LIST
         self.assertTrue(any("BSSID SELECTION LIST" in text for text in logged_texts))
 
+    @patch("cafe_chameleon.modes.aggressive.selector.log_main")
+    def test_display_and_select_bssid_table_contains_required_columns(self, mock_log_main):
+        bssids = [
+            {"bssid": "00:11:22:33:44:01", "signal": "90", "chan": "1"},
+            {"bssid": "00:11:22:33:44:02", "signal": "60", "chan": "6"}
+        ]
+        air_clients_map = {
+            "00:11:22:33:44:01": {"aa:bb:cc:dd:ee:01": "10.0.0.5"}
+        }
+        display_and_select_bssid(bssids, air_clients_map=air_clients_map, select_requested=False)
+        logged_texts = [call.args[0] for call in mock_log_main.call_args_list if call.args]
+        combined = "\n".join(logged_texts)
+
+        self.assertIn("BSSID", combined)
+        self.assertIn("CLIENTS", combined)
+        self.assertIn("ACTIVE", combined)
+        self.assertIn("SIGNAL", combined)
+        self.assertIn("00:11:22:33:44:01", combined)
+        self.assertIn("00:11:22:33:44:02", combined)
+        self.assertIn("90%", combined)
+        self.assertIn("60%", combined)
+        self.assertNotIn("POWER", combined)
+
+    def test_display_and_select_bssid_orders_by_strongest_signal(self):
+        bssids = [
+            {"bssid": "00:11:22:33:44:02", "signal": "30"},
+            {"bssid": "00:11:22:33:44:01", "signal": "95"},
+            {"bssid": "00:11:22:33:44:03", "signal": "70"},
+        ]
+        result = display_and_select_bssid(bssids, air_clients_map={}, select_requested=False)
+        self.assertEqual(result[0]["bssid"], "00:11:22:33:44:01")  # 95%
+        self.assertEqual(result[1]["bssid"], "00:11:22:33:44:03")  # 70%
+        self.assertEqual(result[2]["bssid"], "00:11:22:33:44:02")  # 30%
+
 
 if __name__ == "__main__":
     unittest.main()
-

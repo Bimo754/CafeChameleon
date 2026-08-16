@@ -27,14 +27,18 @@ def close_xterm() -> None:
         XtermManager._instance.close()
 
 
+def is_xterm_running() -> bool:
+    return bool(get_use_xterm() and XtermManager and XtermManager._instance and XtermManager._instance.enabled)
+
+
 def log_to_xterm(target: str, text: str, clear: bool = False, add_newline: bool = True) -> bool:
-    if get_use_xterm() and XtermManager and XtermManager._instance and XtermManager._instance.enabled:
+    if is_xterm_running():
         return XtermManager._instance.write(target, text, clear=clear, add_newline=add_newline)
     return False
 
 
 def clear_window(target: str) -> None:
-    if get_use_xterm() and XtermManager and XtermManager._instance and XtermManager._instance.enabled:
+    if is_xterm_running():
         XtermManager._instance.clear(target)
 
 
@@ -48,25 +52,31 @@ def format_window_text(target: str, text: str) -> str:
 def log_main(text: str, clear: bool = False, add_newline: bool = True) -> None:
     if get_quiet():
         return
-    formatted = format_window_text("main", text)
-    if not log_to_xterm("main", formatted, clear=clear, add_newline=add_newline):
-        end_char = "\n" if add_newline else ""
-        print(colors.colorize_brackets(text), end=end_char, flush=True)
+    if is_xterm_running():
+        XtermManager._instance.write("main", format_window_text("main", text), clear=clear, add_newline=add_newline)
+        return
+    if clear:
+        print("\033[H\033[2J\033[3J", end="", flush=True)
+    end_char = "\n" if add_newline else ""
+    print(colors.colorize_brackets(text), end=end_char, flush=True)
 
 
 def set_main_status(interface: str | None = None, profile: str | None = None, ssid: str | None = None, status: str | None = None) -> None:
     if get_quiet():
         return
-    if get_use_xterm() and XtermManager and XtermManager._instance and XtermManager._instance.enabled:
+    if is_xterm_running():
         XtermManager._instance.set_main_status(interface=interface, profile=profile, ssid=ssid, status=status)
 
 
 def log_air(text: str, clear: bool = False) -> None:
     if get_quiet():
         return
-    formatted = format_window_text("air", text)
-    if not log_to_xterm("air", formatted, clear=clear):
-        print(colors.colorize_brackets(text))
+    if is_xterm_running():
+        XtermManager._instance.write("air", format_window_text("air", text), clear=clear)
+        return
+    if clear:
+        print("\033[H\033[2J\033[3J", end="", flush=True)
+    print(colors.colorize_brackets(text))
 
 
 _DEFAULT = object()
@@ -75,17 +85,13 @@ _DEFAULT = object()
 def set_air_status(mode=_DEFAULT, remaining=_DEFAULT) -> None:
     if get_quiet():
         return
-    if get_use_xterm() and XtermManager and XtermManager._instance and XtermManager._instance.enabled:
+    if is_xterm_running():
         kwargs = {}
         if mode is not _DEFAULT:
             kwargs["mode"] = mode
         if remaining is not _DEFAULT:
             kwargs["remaining"] = remaining
         XtermManager._instance.set_air_status(**kwargs)
-    else:
-        if mode is not _DEFAULT and mode is not None:
-            color = "\033[38;5;208m" if str(mode).lower() == "monitor" else "\033[1;32m"
-            print(colors.colorize_brackets(f"[*] Mode: {color}{mode}\033[0m"))
 
 
 def set_air_mode(mode: str, remaining=_DEFAULT) -> None:
@@ -95,15 +101,16 @@ def set_air_mode(mode: str, remaining=_DEFAULT) -> None:
 def log_scan(text: str, clear: bool = False) -> None:
     if get_quiet():
         return
-    formatted = format_window_text("scan", text)
-    if not log_to_xterm("scan", formatted, clear=clear):
-        print(colors.colorize_brackets(text))
+    if is_xterm_running():
+        XtermManager._instance.write("scan", format_window_text("scan", text), clear=clear)
+        return
+    print(colors.colorize_brackets(text))
 
 
 def set_scan_status(subnet=_DEFAULT, count=_DEFAULT, scan_type=_DEFAULT) -> None:
     if get_quiet():
         return
-    if get_use_xterm() and XtermManager and XtermManager._instance and XtermManager._instance.enabled:
+    if is_xterm_running():
         kwargs = {}
         if subnet is not _DEFAULT:
             kwargs["subnet"] = subnet
@@ -117,15 +124,16 @@ def set_scan_status(subnet=_DEFAULT, count=_DEFAULT, scan_type=_DEFAULT) -> None
 def log_hijack(text: str, clear: bool = False) -> None:
     if get_quiet():
         return
-    formatted = format_window_text("hijack", text)
-    if not log_to_xterm("hijack", formatted, clear=clear):
-        print(colors.colorize_brackets(text))
+    if is_xterm_running():
+        XtermManager._instance.write("hijack", format_window_text("hijack", text), clear=clear)
+        return
+    print(colors.colorize_brackets(text))
 
 
 def set_hijack_status(ip=_DEFAULT, mac=_DEFAULT, technique: str | None = None, clear_section2: bool = False) -> None:
     if get_quiet():
         return
-    if get_use_xterm() and XtermManager and XtermManager._instance and XtermManager._instance.enabled:
+    if is_xterm_running():
         kwargs = {"clear_section2": clear_section2}
         if ip is not _DEFAULT:
             kwargs["ip"] = ip
@@ -152,7 +160,7 @@ def set_hijack_status(ip=_DEFAULT, mac=_DEFAULT, technique: str | None = None, c
 def clear_hijack_section2() -> None:
     if get_quiet():
         return
-    if get_use_xterm() and XtermManager and XtermManager._instance and XtermManager._instance.enabled:
+    if is_xterm_running():
         XtermManager._instance.clear_hijack_section2()
 
 
@@ -162,7 +170,7 @@ def get_user_input(prompt: str = "") -> str:
     import select
 
     clean_prompt = prompt.strip("\r\n") if prompt else ""
-    if get_use_xterm() and XtermManager and XtermManager._instance and XtermManager._instance.enabled:
+    if is_xterm_running():
         if clean_prompt:
             log_main(clean_prompt, add_newline=False)
         fifo_path = getattr(XtermManager._instance, "input_fifo", None)

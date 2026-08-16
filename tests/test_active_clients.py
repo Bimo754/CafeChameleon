@@ -7,7 +7,7 @@ from unittest.mock import patch, MagicMock, call
 from scapy.all import Dot11, Dot11ProbeReq, Dot11ProbeResp, Dot11Auth, RadioTap, IP, UDP, Raw
 
 from cafe_chameleon.scanners.air.packet_parser import parse_air_packet
-from cafe_chameleon.scanners.air.sniffer import AirClientsMap
+from cafe_chameleon.scanners.air.sniffer import AirClientsMap, format_air_panel, AirCountdownTimer
 from cafe_chameleon.modes.aggressive.ranker import (
     calculate_bssid_score,
     is_client_active,
@@ -55,8 +55,7 @@ class TestActiveClientDetection(unittest.TestCase):
         self.assertIn(self.client1, bssid_to_clients[self.bssid1])
         self.assertFalse(client_metadata[self.client1]["active"])
 
-    @patch("cafe_chameleon.scanners.air.packet_parser.log_air")
-    def test_probe_client_upgrades_to_active_on_subsequent_data(self, mock_log_air):
+    def test_probe_client_upgrades_to_active_on_subsequent_data(self):
         bssid_to_clients = {self.bssid1: {}}
         client_metadata = {}
 
@@ -64,23 +63,22 @@ class TestActiveClientDetection(unittest.TestCase):
         pkt_probe = Dot11(type=0, subtype=4, addr1=self.bssid1, addr2=self.client1, addr3=self.bssid1) / Dot11ProbeReq()
         parse_air_packet(pkt_probe, self.target_bssids, self.ignore_macs, bssid_to_clients, client_metadata=client_metadata)
         self.assertFalse(client_metadata[self.client1]["active"])
-        mock_log_air.assert_called_with(f"  [+] Target Client: {self.client1} on BSSID {self.bssid1}")
+        self.assertIn(self.client1, bssid_to_clients[self.bssid1])
 
         # 2. Subsequent uplink data frame (now active)
         pkt_data = Dot11(FCfield=1, type=2, subtype=8, addr1=self.bssid1, addr2=self.client1, addr3=self.bssid1) / Raw(b"app traffic")
         parse_air_packet(pkt_data, self.target_bssids, self.ignore_macs, bssid_to_clients, client_metadata=client_metadata)
         self.assertTrue(client_metadata[self.client1]["active"])
-        mock_log_air.assert_called_with(f"  [+] Active client: {self.client1} on BSSID {self.bssid1}")
+        self.assertIn(self.client1, bssid_to_clients[self.bssid1])
 
-    @patch("cafe_chameleon.scanners.air.packet_parser.log_air")
-    def test_initial_active_client_logs_active_client(self, mock_log_air):
+    def test_initial_active_client_logs_active_client(self):
         bssid_to_clients = {self.bssid1: {}}
         client_metadata = {}
 
         pkt_data = Dot11(FCfield=1, type=2, subtype=0, addr1=self.bssid1, addr2=self.client1, addr3=self.bssid1) / Raw(b"app traffic")
         parse_air_packet(pkt_data, self.target_bssids, self.ignore_macs, bssid_to_clients, client_metadata=client_metadata)
         self.assertTrue(client_metadata[self.client1]["active"])
-        mock_log_air.assert_called_with(f"  [+] Active client: {self.client1} on BSSID {self.bssid1}")
+        self.assertIn(self.client1, bssid_to_clients[self.bssid1])
 
     def test_active_state_preserved_when_client_migrates_to_stronger_bssid(self):
         bssid_to_clients = {self.bssid1: {}, self.bssid2: {}}
@@ -99,8 +97,7 @@ class TestActiveClientDetection(unittest.TestCase):
         self.assertNotIn(self.client1, bssid_to_clients[self.bssid1])
         self.assertTrue(client_metadata[self.client1]["active"])
 
-    @patch("cafe_chameleon.scanners.air.packet_parser.log_air")
-    def test_probe_client_upgrades_to_active_on_bssid_migration(self, mock_log_air):
+    def test_probe_client_upgrades_to_active_on_bssid_migration(self):
         bssid_to_clients = {self.bssid1: {}, self.bssid2: {}}
         client_metadata = {}
 
@@ -108,7 +105,7 @@ class TestActiveClientDetection(unittest.TestCase):
         pkt1 = Dot11(type=0, subtype=4, addr1=self.bssid1, addr2=self.client1, addr3=self.bssid1) / Dot11ProbeReq()
         parse_air_packet(pkt1, self.target_bssids, self.ignore_macs, bssid_to_clients, client_metadata=client_metadata)
         self.assertFalse(client_metadata[self.client1]["active"])
-        mock_log_air.assert_called_with(f"  [+] Target Client: {self.client1} on BSSID {self.bssid1}")
+        self.assertIn(self.client1, bssid_to_clients[self.bssid1])
 
         # 2. Later sends active data on BSSID 2 (higher priority data frame)
         pkt2 = Dot11(FCfield=1, type=2, subtype=0, addr1=self.bssid2, addr2=self.client1, addr3=self.bssid2) / Raw(b"traffic")
@@ -116,10 +113,8 @@ class TestActiveClientDetection(unittest.TestCase):
         self.assertTrue(client_metadata[self.client1]["active"])
         self.assertIn(self.client1, bssid_to_clients[self.bssid2])
         self.assertNotIn(self.client1, bssid_to_clients[self.bssid1])
-        mock_log_air.assert_called_with(f"  [+] Active rebound: {self.client1} -> BSSID {self.bssid2}")
 
-    @patch("cafe_chameleon.scanners.air.packet_parser.log_air")
-    def test_rebound_with_ip_does_not_log_ip(self, mock_log_air):
+    def test_rebound_with_ip_does_not_log_ip(self):
         from scapy.all import ARP
         bssid_to_clients = {self.bssid1: {}, self.bssid2: {}}
         client_metadata = {}
@@ -127,17 +122,17 @@ class TestActiveClientDetection(unittest.TestCase):
         # 1. Initially seen on BSSID 1 with ARP / IP 10.0.0.55
         pkt1 = Dot11(FCfield=1, type=2, subtype=0, addr1=self.bssid1, addr2=self.client1, addr3=self.bssid1) / ARP(psrc="10.0.0.55", hwsrc=self.client1)
         parse_air_packet(pkt1, self.target_bssids, self.ignore_macs, bssid_to_clients, client_metadata=client_metadata)
-        mock_log_air.assert_called_with(f"  [+] Active client: {self.client1} on BSSID {self.bssid1}")
+        self.assertIn(self.client1, bssid_to_clients[self.bssid1])
+        self.assertEqual(bssid_to_clients[self.bssid1][self.client1], "10.0.0.55")
 
         # 2. Stronger signal on BSSID 2 triggers rebound
         pkt2 = RadioTap(dBm_AntSignal=-40) / Dot11(FCfield=1, type=2, subtype=0, addr1=self.bssid2, addr2=self.client1, addr3=self.bssid2) / Raw(b"data")
         parse_air_packet(pkt2, self.target_bssids, self.ignore_macs, bssid_to_clients, client_metadata=client_metadata)
 
-        # Assert log_air call did not include IP
-        mock_log_air.assert_called_with(f"  [+] Rebound: {self.client1} -> BSSID {self.bssid2}")
-        for call_args in mock_log_air.call_args_list:
-            logged_msg = call_args[0][0]
-            self.assertNotIn("10.0.0.55", logged_msg)
+        # Assert BSSID migrated and IP preserved
+        self.assertIn(self.client1, bssid_to_clients[self.bssid2])
+        self.assertNotIn(self.client1, bssid_to_clients[self.bssid1])
+        self.assertEqual(bssid_to_clients[self.bssid2][self.client1], "10.0.0.55")
 
     def test_downlink_data_frame_marks_client_active(self):
         bssid_to_clients = {self.bssid1: {}}
@@ -358,6 +353,49 @@ class TestPrioritizedActiveImpersonation(unittest.TestCase):
         passed_macs = list(passed_clients.keys())
         self.assertEqual(passed_macs[0], "00:11:22:33:44:02")  # Active client from BSSID 2
         self.assertEqual(passed_macs[1], "00:11:22:33:44:01")  # Idle client from BSSID 1
+
+
+class TestAirSnifferPanelAndTimer(unittest.TestCase):
+
+    def test_format_air_panel_empty(self):
+        panel = format_air_panel({}, mode="Monitor", remaining=15, duration=15)
+        self.assertIn("AIR SNIFFER", panel)
+        self.assertIn("Mode:", panel)
+        self.assertIn("Monitor", panel)
+        self.assertIn("Remaining:", panel)
+        self.assertIn("CLIENT BSSID", panel)
+        self.assertIn("AP BSSID", panel)
+        self.assertIn("IS ACTIVE", panel)
+        self.assertIn("No clients captured yet", panel)
+
+    def test_format_air_panel_with_clients(self):
+        metadata = {
+            "aa:bb:cc:00:00:01": {"bssid": "00:11:22:33:44:01", "active": True},
+            "aa:bb:cc:00:00:02": {"bssid": "00:11:22:33:44:01", "active": False},
+        }
+        panel = format_air_panel(metadata, mode="Monitor", remaining="10s", duration=15)
+        self.assertIn("aa:bb:cc:00:00:01", panel)
+        self.assertIn("aa:bb:cc:00:00:02", panel)
+        self.assertIn("00:11:22:33:44:01", panel)
+        self.assertIn("True", panel)
+        self.assertIn("False", panel)
+        self.assertIn("CLIENT BSSID", panel)
+        self.assertIn("AP BSSID", panel)
+        self.assertIn("IS ACTIVE", panel)
+
+    def test_air_countdown_timer_ticks(self):
+        import time
+        ticks = []
+        timer = AirCountdownTimer(
+            duration=2,
+            interval=0.1,
+            client_metadata={"11:22:33:44:55:66": {"bssid": "aa:bb:cc:dd:ee:ff", "active": True}},
+            on_tick=lambda r: ticks.append(r)
+        )
+        timer.start()
+        time.sleep(0.3)
+        timer.stop()
+        self.assertGreater(len(ticks), 0)
 
 
 if __name__ == "__main__":

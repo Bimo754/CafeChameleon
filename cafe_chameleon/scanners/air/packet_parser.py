@@ -418,10 +418,6 @@ def parse_air_packet(
                                 "data_count": 1 if is_active_frame else (1 if frame_priority == 3 else 0),
                                 "total_count": 1
                             }
-                        if is_active_frame:
-                            log_air(f"  [+] Active client: {client_candidate} on BSSID {matched_bssid}")
-                        else:
-                            log_air(f"  [+] Target Client: {client_candidate} on BSSID {matched_bssid}")
 
                     elif old_bssid == matched_bssid:
                         # Client seen again on its currently bound BSSID
@@ -439,7 +435,6 @@ def parse_air_packet(
                                 "data_count": 0,
                                 "total_count": 0
                             })
-                            prev_active = meta.get("active", False)
                             meta["priority"] = max(meta.get("priority", 1), frame_priority)
                             if is_active_frame:
                                 meta["active"] = True
@@ -451,9 +446,6 @@ def parse_air_packet(
                             if is_active_frame or frame_priority == 3:
                                 meta["data_count"] = meta.get("data_count", 0) + 1
                             meta["total_count"] = meta.get("total_count", 0) + 1
-
-                            if is_active_frame and not prev_active:
-                                log_air(f"  [+] Active client: {client_candidate} on BSSID {matched_bssid}")
 
                     else:
                         # Client was previously bound to old_bssid, but now detected on matched_bssid
@@ -505,10 +497,6 @@ def parse_air_packet(
                                     "data_count": (old_data_count + 1 if is_active_frame else (1 if frame_priority == 3 else 0)),
                                     "total_count": (meta.get("total_count", 0) + 1) if (client_metadata and client_candidate in client_metadata) else 1
                                 }
-                            if is_active_frame and not old_active:
-                                log_air(f"  [+] Active rebound: {client_candidate} -> BSSID {matched_bssid}")
-                            else:
-                                log_air(f"  [+] Rebound: {client_candidate} -> BSSID {matched_bssid}")
                         else:
                             # Retain binding on old_bssid, but update IP if newly discovered
                             if client_ip and not old_ip:
@@ -516,9 +504,6 @@ def parse_air_packet(
                                 if client_metadata is not None and client_candidate in client_metadata:
                                     client_metadata[client_candidate]["ip"] = client_ip
                             if is_active_frame and client_metadata is not None and client_candidate in client_metadata:
-                                prev_active = client_metadata[client_candidate].get("active", False)
                                 client_metadata[client_candidate]["active"] = True
-                                if not prev_active:
-                                    log_air(f"  [+] Active client: {client_candidate} on BSSID {old_bssid}")
     except Exception:
         pass

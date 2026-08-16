@@ -9,6 +9,8 @@ from cafe_chameleon.config import DEFAULT_AIR_DURATION, DEFAULT_BSSID_THRESHOLD
 from cafe_chameleon.utils.signals import AirSkipInterrupt
 from cafe_chameleon.ui.console import log_air, set_air_status
 from cafe_chameleon.scanners.detector import auto_detect_network_params
+from cafe_chameleon.utils.state import get_use_xterm
+from cafe_chameleon.ui.xterm import XtermManager
 
 from .mode import set_monitor_mode, set_managed_mode
 from .hopper import ChannelHopper
@@ -18,11 +20,75 @@ from .stimulator import ClientStimulator
 DIGIT_REGEX = re.compile(r"[^\d]")
 
 
+def format_air_panel(
+    client_metadata: dict | None = None,
+    mode: str = "Monitor",
+    remaining: str | int | None = "N/A",
+    duration: int | None = None,
+    include_banner: bool = True
+) -> str:
+    """
+    Renders the Air Sniffer information panel:
+    - Banner with 'AIR SNIFFER' header (if include_banner=True)
+    - Mode and duration/remaining status (if include_banner=True)
+    - Separator lines
+    - Cleanly aligned table with columns: #, CLIENT BSSID, AP BSSID, IS ACTIVE
+    """
+    lines = []
+    if include_banner:
+        if mode == "Monitor":
+            mode_colored = "\033[38;5;208mMonitor\033[0m"
+        else:
+            mode_colored = "\033[1;32mManaged\033[0m"
+
+        if remaining is None or str(remaining).strip() == "":
+            rem_str = "N/A"
+        elif isinstance(remaining, (int, float)):
+            rem_str = f"{int(remaining)}s"
+        else:
+            r_str = str(remaining).strip()
+            rem_str = f"{r_str}s" if r_str.isdigit() else r_str
+
+        dur_info = f" | \033[1;37mDuration:\033[0m \033[1;36m{duration}s\033[0m" if (duration and duration > 0) else ""
+
+        lines.append("\033[1;35m─── 802.11 AIR SNIFFER ─────────────────────────────────\033[0m")
+        lines.append(f"\033[1;37mMode:\033[0m {mode_colored}{dur_info} | \033[1;37mRemaining:\033[0m \033[1;33m{rem_str}\033[0m")
+        lines.append("\033[1;30m────────────────────────────────────────────────────────\033[0m")
+
+    lines.append(f"{'#':<4} {'CLIENT BSSID':<20} {'AP BSSID':<20} {'IS ACTIVE'}")
+    lines.append("\033[1;30m────────────────────────────────────────────────────────\033[0m")
+
+    clients_dict = client_metadata or {}
+    if not clients_dict:
+        lines.append("  (No clients captured yet...)")
+    else:
+        # Sort clients: active clients first, then alphabetically by MAC
+        sorted_clients = sorted(
+            clients_dict.items(),
+            key=lambda item: (not bool(item[1].get("active") if isinstance(item[1], dict) else False), item[0])
+        )
+        for idx, (client_mac, meta) in enumerate(sorted_clients, start=1):
+            if isinstance(meta, dict):
+                ap_bssid = meta.get("bssid") or "N/A"
+                is_active = bool(meta.get("active", False))
+            else:
+                ap_bssid = str(meta) if meta else "N/A"
+                is_active = False
+
+            active_colored = "\033[1;32mTrue\033[0m" if is_active else "\033[37mFalse\033[0m"
+            lines.append(f" {idx:<3} {client_mac:<20} {ap_bssid:<20} {active_colored}")
+
+    lines.append("\033[1;30m────────────────────────────────────────────────────────\033[0m")
+    return "\n".join(lines)
+
+
 class AirCountdownTimer:
-    """Manages background countdown timer updating the air sniffer remaining seconds."""
-    def __init__(self, duration: int, interval: float = 0.5):
+    """Manages background countdown timer updating the air sniffer remaining seconds and rendering the live client table."""
+    def __init__(self, duration: int, interval: float = 1.0, client_metadata: dict | None = None, on_tick=None):
         self.duration = duration
         self.interval = interval
+        self.client_metadata = client_metadata if client_metadata is not None else {}
+        self.on_tick = on_tick
         self.stop_event = threading.Event()
         self._thread = None
 
@@ -30,18 +96,39 @@ class AirCountdownTimer:
         start_t = time.time()
         end_t = start_t + self.duration
         set_air_status(mode="Monitor", remaining=f"{self.duration}s")
+        self._render_tick(self.duration)
 
         def timer_loop():
             while not self.stop_event.is_set():
+                self.stop_event.wait(self.interval)
+                if self.stop_event.is_set():
+                    break
                 now = time.time()
-                remaining = max(0, int(end_t - now))
+                remaining = max(0, int(round(end_t - now)))
                 set_air_status(mode="Monitor", remaining=f"{remaining}s")
+                self._render_tick(remaining)
                 if remaining <= 0:
                     break
-                self.stop_event.wait(self.interval)
 
         self._thread = threading.Thread(target=timer_loop, daemon=True)
         self._thread.start()
+
+    def _render_tick(self, remaining: int) -> None:
+        if self.on_tick:
+            try:
+                self.on_tick(remaining)
+            except Exception:
+                pass
+        else:
+            is_xterm = bool(get_use_xterm() and XtermManager and XtermManager._instance and XtermManager._instance.enabled)
+            panel = format_air_panel(
+                client_metadata=self.client_metadata,
+                mode="Monitor",
+                remaining=remaining,
+                duration=self.duration,
+                include_banner=not is_xterm
+            )
+            log_air(panel, clear=True)
 
     def stop(self, timeout: float = 1.0) -> None:
         self.stop_event.set()
@@ -174,14 +261,11 @@ def calculate_channel_dwell_times(
         sig = channel_signals.get(ch, 0)
         density = densities.get(ch, 1)
 
-        # Gentle scaling factor from signal strength (0.85 for 0% up to 1.35 for 100%)
         sig_factor = 0.85 + (sig / 200.0)
-        # Bonus factor for channels with multiple target BSSIDs (up to +15%)
         density_bonus = min(0.15, (density - 1) * 0.05) if density > 1 else 0.0
 
         factor = sig_factor + density_bonus
         dwell = round(base_dwell * factor, 2)
-        # Bounded between 0.25s and 0.50s to guarantee fast, balanced cycles across far & near APs
         dwell_times[ch] = max(0.25, min(0.50, dwell))
 
     return dwell_times
@@ -275,19 +359,15 @@ def sniff_air_clients(
             hop_channels = valid_target_channels
             if use_weighted and channel_signals:
                 dwell_times = calculate_channel_dwell_times(hop_channels, channel_signals, channel_densities=channel_densities)
-                log_air(f"[*] Weighted hopping enabled ({bssid_count} BSSIDs, threshold: {bssid_threshold})")
         else:
-            log_air("[*] Hopping all channels")
             hop_channels = [1, 6, 11, 36, 40, 44, 48, 52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144, 149, 153, 157, 161, 165, 2, 3, 4, 5, 7, 8, 9, 10]
             if use_weighted and channel_signals:
                 dwell_times = calculate_channel_dwell_times(hop_channels, channel_signals, channel_densities=channel_densities)
-                log_air(f"[*] Weighted hopping enabled ({bssid_count} BSSIDs, threshold: {bssid_threshold})")
 
         effective_duration = duration
         if auto_scale_duration and hop_channels:
             scaled_dur = calculate_scaled_air_duration(base_duration=duration, channel_count=len(hop_channels))
             if scaled_dur > effective_duration:
-                log_air(f"[*] Scaled duration: {scaled_dur}s ({len(hop_channels)} channels)")
                 effective_duration = scaled_dur
 
         # Initialize Active Client Stimulator
@@ -302,14 +382,6 @@ def sniff_air_clients(
             )
             if stimulator.source_mac:
                 ignore_macs.add(stimulator.source_mac.lower())
-            log_air("[*] Client stimulation enabled")
-
-        # Estimate cycle time across target channels
-        est_cycle_time = sum(dwell_times.get(ch, 0.25) for ch in hop_channels) if dwell_times else (len(hop_channels) * 0.25)
-        if est_cycle_time > 0 and effective_duration < (est_cycle_time * 2):
-            log_air(f"[i] Duration: {effective_duration}s (~{effective_duration / est_cycle_time:.1f} cycles, {len(hop_channels)} channels)")
-
-        log_air(f"[*] Sniffing frames on {mon_iface} ({effective_duration}s)...")
 
         client_metadata = {}
 
@@ -331,14 +403,17 @@ def sniff_air_clients(
         hopper = ChannelHopper(mon_iface, hop_channels, dwell_times=dwell_times, on_channel_change=on_channel_hop)
         hopper.start()
 
-        timer = AirCountdownTimer(duration=effective_duration)
+        timer = AirCountdownTimer(
+            duration=effective_duration,
+            interval=1.0,
+            client_metadata=client_metadata
+        )
         timer.start()
 
         try:
             sniff(iface=mon_iface, timeout=effective_duration, prn=air_packet_callback, store=False)
         finally:
             timer.stop()
-            set_air_status(mode="Monitor", remaining="0s")
     except (AirSkipInterrupt, KeyboardInterrupt):
         log_air("\n\033[93m[-] Stopped air sniff (Ctrl+C).\033[0m")
     except Exception as e:
@@ -346,15 +421,17 @@ def sniff_air_clients(
     finally:
         if hopper:
             hopper.stop(timeout=1.0)
+        log_air("", clear=True)
         set_managed_mode(interface)
-        set_air_status(mode="Managed", remaining="N/A")
-
-    total_clients = sum(len(c) for c in bssid_to_clients.values())
-    active_clients_count = sum(1 for m, info in client_metadata.items() if info.get("active"))
-    if total_clients > 0:
-        active_suffix = f" ({active_clients_count} active)" if active_clients_count > 0 else ""
-        log_air(f"\n[+] Sniff Complete: Found {total_clients} client(s){active_suffix}.")
-    else:
-        log_air("\n[i] Sniff Complete: No target clients found.")
+        set_air_status(mode="Managed", remaining="0s")
+        is_xterm = bool(get_use_xterm() and XtermManager and XtermManager._instance and XtermManager._instance.enabled)
+        final_panel = format_air_panel(
+            client_metadata=client_metadata,
+            mode="Managed",
+            remaining="0s",
+            duration=effective_duration,
+            include_banner=not is_xterm
+        )
+        log_air(final_panel, clear=True)
 
     return AirClientsMap(bssid_to_clients, client_metadata=client_metadata)
