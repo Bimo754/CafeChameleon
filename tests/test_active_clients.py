@@ -55,7 +55,8 @@ class TestActiveClientDetection(unittest.TestCase):
         self.assertIn(self.client1, bssid_to_clients[self.bssid1])
         self.assertFalse(client_metadata[self.client1]["active"])
 
-    def test_probe_client_upgrades_to_active_on_subsequent_data(self):
+    @patch("cafe_chameleon.scanners.air.packet_parser.log_air")
+    def test_probe_client_upgrades_to_active_on_subsequent_data(self, mock_log_air):
         bssid_to_clients = {self.bssid1: {}}
         client_metadata = {}
 
@@ -63,11 +64,23 @@ class TestActiveClientDetection(unittest.TestCase):
         pkt_probe = Dot11(type=0, subtype=4, addr1=self.bssid1, addr2=self.client1, addr3=self.bssid1) / Dot11ProbeReq()
         parse_air_packet(pkt_probe, self.target_bssids, self.ignore_macs, bssid_to_clients, client_metadata=client_metadata)
         self.assertFalse(client_metadata[self.client1]["active"])
+        mock_log_air.assert_called_with(f"  [+] Target Client: {self.client1} on BSSID {self.bssid1}")
 
         # 2. Subsequent uplink data frame (now active)
         pkt_data = Dot11(FCfield=1, type=2, subtype=8, addr1=self.bssid1, addr2=self.client1, addr3=self.bssid1) / Raw(b"app traffic")
         parse_air_packet(pkt_data, self.target_bssids, self.ignore_macs, bssid_to_clients, client_metadata=client_metadata)
         self.assertTrue(client_metadata[self.client1]["active"])
+        mock_log_air.assert_called_with(f"  [+] Active client: {self.client1} on BSSID {self.bssid1}")
+
+    @patch("cafe_chameleon.scanners.air.packet_parser.log_air")
+    def test_initial_active_client_logs_active_client(self, mock_log_air):
+        bssid_to_clients = {self.bssid1: {}}
+        client_metadata = {}
+
+        pkt_data = Dot11(FCfield=1, type=2, subtype=0, addr1=self.bssid1, addr2=self.client1, addr3=self.bssid1) / Raw(b"app traffic")
+        parse_air_packet(pkt_data, self.target_bssids, self.ignore_macs, bssid_to_clients, client_metadata=client_metadata)
+        self.assertTrue(client_metadata[self.client1]["active"])
+        mock_log_air.assert_called_with(f"  [+] Active client: {self.client1} on BSSID {self.bssid1}")
 
     def test_active_state_preserved_when_client_migrates_to_stronger_bssid(self):
         bssid_to_clients = {self.bssid1: {}, self.bssid2: {}}
