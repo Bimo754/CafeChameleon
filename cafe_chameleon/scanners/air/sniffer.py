@@ -225,7 +225,7 @@ def sniff_air_clients(
             from scapy.all import sniff, Dot11, IP, ARP
             BOOTP, DHCP = None, None
         except ImportError:
-            log_air("[-] scapy is required for 802.11 frame capture. Install with: pip install scapy")
+            log_air("[-] scapy required for frame capture (pip install scapy)")
             return {}
 
     target_bssids_set = {b.lower() for b in target_bssids if b}
@@ -275,19 +275,19 @@ def sniff_air_clients(
             hop_channels = valid_target_channels
             if use_weighted and channel_signals:
                 dwell_times = calculate_channel_dwell_times(hop_channels, channel_signals, channel_densities=channel_densities)
-                log_air(f"[*] Balanced signal & density-weighted hopping enabled ({bssid_count} BSSIDs, threshold: {bssid_threshold})")
+                log_air(f"[*] Weighted hopping enabled ({bssid_count} BSSIDs, threshold: {bssid_threshold})")
         else:
-            log_air("Using all channels")
+            log_air("[*] Hopping all channels")
             hop_channels = [1, 6, 11, 36, 40, 44, 48, 52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144, 149, 153, 157, 161, 165, 2, 3, 4, 5, 7, 8, 9, 10]
             if use_weighted and channel_signals:
                 dwell_times = calculate_channel_dwell_times(hop_channels, channel_signals, channel_densities=channel_densities)
-                log_air(f"[*] Balanced signal & density-weighted hopping enabled ({bssid_count} BSSIDs, threshold: {bssid_threshold})")
+                log_air(f"[*] Weighted hopping enabled ({bssid_count} BSSIDs, threshold: {bssid_threshold})")
 
         effective_duration = duration
         if auto_scale_duration and hop_channels:
             scaled_dur = calculate_scaled_air_duration(base_duration=duration, channel_count=len(hop_channels))
             if scaled_dur > effective_duration:
-                log_air(f"[*] Auto-scaled air sniffing duration to {scaled_dur}s ({len(hop_channels)} unique channels detected)")
+                log_air(f"[*] Scaled duration: {scaled_dur}s ({len(hop_channels)} channels)")
                 effective_duration = scaled_dur
 
         # Initialize Active Client Stimulator
@@ -302,12 +302,12 @@ def sniff_air_clients(
             )
             if stimulator.source_mac:
                 ignore_macs.add(stimulator.source_mac.lower())
-            log_air(f"[*] Active 802.11 client stimulation enabled (Probe Requests, Micro-pulse Wake-up & Null Data)")
+            log_air("[*] Client stimulation enabled")
 
         # Estimate cycle time across target channels
         est_cycle_time = sum(dwell_times.get(ch, 0.25) for ch in hop_channels) if dwell_times else (len(hop_channels) * 0.25)
         if est_cycle_time > 0 and effective_duration < (est_cycle_time * 2):
-            log_air(f"[i] Notice: Sniff duration ({effective_duration}s) allows ~{effective_duration / est_cycle_time:.1f} channel hopping cycles across {len(hop_channels)} channels.")
+            log_air(f"[i] Duration: {effective_duration}s (~{effective_duration / est_cycle_time:.1f} cycles, {len(hop_channels)} channels)")
 
         log_air(f"[*] Sniffing frames on {mon_iface} ({effective_duration}s)...")
 
@@ -340,9 +340,9 @@ def sniff_air_clients(
             timer.stop()
             set_air_status(mode="Monitor", remaining="0s")
     except (AirSkipInterrupt, KeyboardInterrupt):
-        log_air("\n\033[93m[-] Stopped air sniff (Ctrl+C). Processing captured targets...\033[0m")
+        log_air("\n\033[93m[-] Stopped air sniff (Ctrl+C).\033[0m")
     except Exception as e:
-        log_air(f"[-] Over-the-air capture exception on {interface}: {e}")
+        log_air(f"[-] Air capture error on {interface}: {e}")
     finally:
         if hopper:
             hopper.stop(timeout=1.0)
@@ -353,8 +353,8 @@ def sniff_air_clients(
     active_clients_count = sum(1 for m, info in client_metadata.items() if info.get("active"))
     if total_clients > 0:
         active_suffix = f" ({active_clients_count} active)" if active_clients_count > 0 else ""
-        log_air(f"\n[+] Air Sniff Complete: Found {total_clients} target client(s){active_suffix}.")
+        log_air(f"\n[+] Sniff Complete: Found {total_clients} client(s){active_suffix}.")
     else:
-        log_air("\n[i] Air Sniff Complete: No active clients captured.")
+        log_air("\n[i] Sniff Complete: No target clients found.")
 
     return AirClientsMap(bssid_to_clients, client_metadata=client_metadata)

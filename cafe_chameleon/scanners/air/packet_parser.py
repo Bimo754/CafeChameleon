@@ -372,8 +372,7 @@ def parse_air_packet(
                 if not is_invalid:
                     curr_rssi = extract_packet_rssi(pkt)
 
-                    # Determine if this frame is an active data transmission from client to AP
-                    is_uplink_data = bool(to_ds and not from_ds and dot11.type == 2)
+                    # Determine if this frame is an active data transmission
                     is_data_carrying = False
                     if dot11.type == 2:
                         try:
@@ -393,7 +392,7 @@ def parse_air_packet(
                         elif sub_val is None:
                             is_data_carrying = True
 
-                    is_active_frame = (is_uplink_data and is_data_carrying) or bool(client_ip and (to_ds or dot11.type == 2))
+                    is_active_frame = (dot11.type == 2 and is_data_carrying) or bool(client_ip and (to_ds or from_ds or dot11.type == 2))
 
                     # Ensure target BSSID bucket exists
                     if matched_bssid not in bssid_to_clients:
@@ -507,7 +506,10 @@ def parse_air_packet(
                                     "total_count": (meta.get("total_count", 0) + 1) if (client_metadata and client_candidate in client_metadata) else 1
                                 }
                             ip_str = f" ({best_ip})" if best_ip else ""
-                            log_air(f"  [+] Rebound: {client_candidate}{ip_str} -> BSSID {matched_bssid}")
+                            if is_active_frame and not old_active:
+                                log_air(f"  [+] Active rebound: {client_candidate}{ip_str} -> BSSID {matched_bssid}")
+                            else:
+                                log_air(f"  [+] Rebound: {client_candidate}{ip_str} -> BSSID {matched_bssid}")
                         else:
                             # Retain binding on old_bssid, but update IP if newly discovered
                             if client_ip and not old_ip:
@@ -515,6 +517,9 @@ def parse_air_packet(
                                 if client_metadata is not None and client_candidate in client_metadata:
                                     client_metadata[client_candidate]["ip"] = client_ip
                             if is_active_frame and client_metadata is not None and client_candidate in client_metadata:
+                                prev_active = client_metadata[client_candidate].get("active", False)
                                 client_metadata[client_candidate]["active"] = True
+                                if not prev_active:
+                                    log_air(f"  [+] Active client: {client_candidate} on BSSID {old_bssid}")
     except Exception:
         pass

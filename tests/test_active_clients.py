@@ -99,6 +99,36 @@ class TestActiveClientDetection(unittest.TestCase):
         self.assertNotIn(self.client1, bssid_to_clients[self.bssid1])
         self.assertTrue(client_metadata[self.client1]["active"])
 
+    @patch("cafe_chameleon.scanners.air.packet_parser.log_air")
+    def test_probe_client_upgrades_to_active_on_bssid_migration(self, mock_log_air):
+        bssid_to_clients = {self.bssid1: {}, self.bssid2: {}}
+        client_metadata = {}
+
+        # 1. Initially seen as idle probe on BSSID 1
+        pkt1 = Dot11(type=0, subtype=4, addr1=self.bssid1, addr2=self.client1, addr3=self.bssid1) / Dot11ProbeReq()
+        parse_air_packet(pkt1, self.target_bssids, self.ignore_macs, bssid_to_clients, client_metadata=client_metadata)
+        self.assertFalse(client_metadata[self.client1]["active"])
+        mock_log_air.assert_called_with(f"  [+] Target Client: {self.client1} on BSSID {self.bssid1}")
+
+        # 2. Later sends active data on BSSID 2 (higher priority data frame)
+        pkt2 = Dot11(FCfield=1, type=2, subtype=0, addr1=self.bssid2, addr2=self.client1, addr3=self.bssid2) / Raw(b"traffic")
+        parse_air_packet(pkt2, self.target_bssids, self.ignore_macs, bssid_to_clients, client_metadata=client_metadata)
+        self.assertTrue(client_metadata[self.client1]["active"])
+        self.assertIn(self.client1, bssid_to_clients[self.bssid2])
+        self.assertNotIn(self.client1, bssid_to_clients[self.bssid1])
+        mock_log_air.assert_called_with(f"  [+] Active rebound: {self.client1} -> BSSID {self.bssid2}")
+
+    def test_downlink_data_frame_marks_client_active(self):
+        bssid_to_clients = {self.bssid1: {}}
+        client_metadata = {}
+
+        # Downlink data frame (from_ds=1, to_ds=0, addr1=client, addr2=bssid, addr3=bssid)
+        pkt = Dot11(FCfield=2, type=2, subtype=0, addr1=self.client1, addr2=self.bssid1, addr3=self.bssid1) / Raw(b"downlink data")
+        parse_air_packet(pkt, self.target_bssids, self.ignore_macs, bssid_to_clients, client_metadata=client_metadata)
+
+        self.assertIn(self.client1, bssid_to_clients[self.bssid1])
+        self.assertTrue(client_metadata[self.client1]["active"])
+
 
 class TestAirClientsMapAndRanking(unittest.TestCase):
 
