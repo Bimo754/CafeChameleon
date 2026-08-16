@@ -63,8 +63,10 @@ def reconnect_wifi(
     bssid = target_bssid or get_connected_bssid(iface)
     if not bssid:
         rc, prof_bssid = _run(["nmcli", "-g", "802-11-wireless.bssid", "connection", "show", prof], debug=False)
-        if prof_bssid and is_valid_mac(prof_bssid.strip()):
-            bssid = prof_bssid.strip().upper()
+        if prof_bssid:
+            cleaned_prof_bssid = prof_bssid.replace(r"\:", ":").replace("\\", "").strip()
+            if is_valid_mac(cleaned_prof_bssid):
+                bssid = cleaned_prof_bssid.upper()
 
     if not bssid:
         ssid = get_ssid_for_profile(prof)
@@ -81,8 +83,10 @@ def reconnect_wifi(
     mac = target_mac or get_current_mac(iface)
     if not mac or not is_valid_mac(mac):
         rc, prof_mac = _run(["nmcli", "-g", "802-11-wireless.cloned-mac-address", "connection", "show", prof], debug=False)
-        if prof_mac and is_valid_mac(prof_mac.strip()):
-            mac = prof_mac.strip().lower()
+        if prof_mac:
+            cleaned_prof_mac = prof_mac.replace(r"\:", ":").replace("\\", "").strip()
+            if is_valid_mac(cleaned_prof_mac):
+                mac = cleaned_prof_mac.lower()
 
     if not mac or not is_valid_mac(mac):
         mac = get_permanent_mac(iface)

@@ -15,7 +15,7 @@ from cafe_chameleon.network.mac import (
     set_mac_address,
     reset_mac_address,
 )
-from cafe_chameleon.network.nmcli import change_mac
+from cafe_chameleon.network.nmcli import change_mac, show_mac
 from cafe_chameleon.utils.state import set_use_original_mac, get_use_original_mac
 from cafe_chameleon.cli.parser import parse_arguments
 
@@ -70,6 +70,35 @@ class TestPermanentAndAttackMac:
             with patch("cafe_chameleon.network.mac._run", return_value=(0, macchanger_output)):
                 mac = get_permanent_mac("wlan0")
                 assert mac == "11:22:33:44:55:66"
+
+    def test_get_permanent_mac_ethtool_fallback(self):
+        """Test fallback to ethtool -P output when sysfs and macchanger are unavailable."""
+        ethtool_output = "Permanent address: 22:33:44:55:66:77\n"
+        with patch("builtins.open", side_effect=OSError("No sysfs")):
+            def mock_run_side_effect(cmd, **kwargs):
+                if cmd[0] == "macchanger":
+                    return (1, "")
+                if cmd[0] == "ethtool":
+                    return (0, ethtool_output)
+                return (1, "")
+            with patch("cafe_chameleon.network.mac._run", side_effect=mock_run_side_effect):
+                mac = get_permanent_mac("wlan0")
+                assert mac == "22:33:44:55:66:77"
+
+    def test_get_current_mac_ip_link_fallback(self):
+        """Test get_current_mac fallback to ip link show."""
+        ip_out = "3: wlan0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP mode DORMANT group default qlen 1000\n    link/ether 44:55:66:77:88:99 brd ff:ff:ff:ff:ff:ff"
+        with patch("builtins.open", side_effect=OSError("No sysfs")):
+            def mock_run_side_effect(cmd, **kwargs):
+                if cmd[0] == "macchanger":
+                    return (1, "")
+                if cmd[0] == "ip":
+                    return (0, ip_out)
+                return (1, "")
+            with patch("cafe_chameleon.network.mac._run", side_effect=mock_run_side_effect):
+                mac = get_current_mac("wlan0")
+                assert mac == "44:55:66:77:88:99"
+
 
     def test_get_attack_mac_random_by_default(self):
         """When -m flag is NOT set, get_attack_mac should return a newly generated random MAC."""
@@ -238,8 +267,115 @@ class TestCliMacFlags:
             args = parse_arguments()
             assert getattr(args, "mac", None) == ["00:11:22:33:44:55", "MyProfile"]
 
+    def test_cli_wifi_mac_flag_show(self):
+        with patch("sys.argv", ["main.py", "wifi", "--mac", "show"]):
+            args = parse_arguments()
+            assert getattr(args, "mac", None) == ["show"]
+
+
+class TestShowMac:
+    @patch("cafe_chameleon.network.mac.get_permanent_mac", return_value="aa:bb:cc:dd:ee:01")
+    @patch("cafe_chameleon.network.mac.get_current_mac", return_value="aa:bb:cc:dd:ee:02")
+    @patch("cafe_chameleon.network.nmcli.ui_status.get_active_profile", return_value="HomeWiFi")
+    @patch("cafe_chameleon.network.nmcli.ui_status._run", return_value=(0, "wlan0"))
+    def test_show_mac_basic(self, mock_run, mock_prof, mock_curr, mock_perm, capsys):
+        """Test show_mac prints both current and permanent MAC address."""
+        res = show_mac(interface="wlan0", profile="HomeWiFi")
+        assert res is True
+        out = capsys.readouterr().out
+        assert "MAC ADDRESS INFO" in out
+        assert "wlan0" in out
+        assert "HomeWiFi" in out
+        assert "aa:bb:cc:dd:ee:02" in out
+        assert "aa:bb:cc:dd:ee:01" in out
+        assert "SPOOFED" in out
+
+    @patch("cafe_chameleon.network.mac.get_permanent_mac", return_value="aa:bb:cc:dd:ee:01")
+    @patch("cafe_chameleon.network.mac.get_current_mac", return_value="aa:bb:cc:dd:ee:01")
+    @patch("cafe_chameleon.network.nmcli.ui_status.get_active_profile", return_value=None)
+    @patch("cafe_chameleon.scanners.detector.auto_detect_network_params", return_value={"interface": "wlan0"})
+    def test_show_mac_permanent_match(self, mock_detect, mock_prof, mock_curr, mock_perm, capsys):
+        """Test show_mac marks as permanent when current == perm."""
+        res = show_mac()
+        assert res is True
+        out = capsys.readouterr().out
+        assert "PERMANENT" in out
+        assert "aa:bb:cc:dd:ee:01" in out
+
 
 class TestWifiMacController:
+    @patch("cafe_chameleon.modes.wifi.controller.show_mac")
+    def test_run_wifi_mac_show(self, mock_show_mac):
+        """Test wifi --mac show calls show_mac with None interface & profile."""
+        from cafe_chameleon.modes.wifi.controller import run_wifi
+        import argparse
+
+        mock_show_mac.return_value = True
+        args = argparse.Namespace(
+            status=False,
+            lock=None,
+            auto=None,
+            reset_mac=None,
+            release=None,
+            mac=["show"]
+        )
+        run_wifi(args)
+        mock_show_mac.assert_called_once_with(interface=None, profile=None)
+
+    @patch("cafe_chameleon.modes.wifi.controller.show_mac")
+    def test_run_wifi_mac_show_with_profile(self, mock_show_mac):
+        """Test wifi --mac show MyProfile calls show_mac with target profile."""
+        from cafe_chameleon.modes.wifi.controller import run_wifi
+        import argparse
+
+        mock_show_mac.return_value = True
+        args = argparse.Namespace(
+            status=False,
+            lock=None,
+            auto=None,
+            reset_mac=None,
+            release=None,
+            mac=["show", "MyProfile"]
+        )
+        run_wifi(args)
+        mock_show_mac.assert_called_once_with(interface=None, profile="MyProfile")
+
+    @patch("cafe_chameleon.modes.wifi.controller.show_mac")
+    def test_run_wifi_mac_show_with_iface(self, mock_show_mac):
+        """Test wifi --mac show wlan0 calls show_mac with target interface."""
+        from cafe_chameleon.modes.wifi.controller import run_wifi
+        import argparse
+
+        mock_show_mac.return_value = True
+        args = argparse.Namespace(
+            status=False,
+            lock=None,
+            auto=None,
+            reset_mac=None,
+            release=None,
+            mac=["show", "wlan0"]
+        )
+        run_wifi(args)
+        mock_show_mac.assert_called_once_with(interface="wlan0", profile=None)
+
+    @patch("cafe_chameleon.modes.wifi.controller.show_mac")
+    def test_run_wifi_mac_show_unquoted_multiword_profile(self, mock_show_mac):
+        """Test wifi --mac show GSBWIFI 2 calls show_mac with multiword profile."""
+        from cafe_chameleon.modes.wifi.controller import run_wifi
+        import argparse
+
+        mock_show_mac.return_value = True
+        args = argparse.Namespace(
+            status=False,
+            lock=None,
+            auto=None,
+            reset_mac=None,
+            release=None,
+            mac=["show", "GSBWIFI", "2"]
+        )
+        run_wifi(args)
+        mock_show_mac.assert_called_once_with(interface=None, profile="GSBWIFI 2")
+
     @patch("cafe_chameleon.modes.wifi.controller.change_mac")
     def test_run_wifi_mac_random(self, mock_change_mac):
         """Test wifi --mac with no args passes None to change_mac."""

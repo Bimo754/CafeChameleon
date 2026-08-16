@@ -176,7 +176,7 @@ def parse_arguments(args=None):
     wifi_mut.add_argument("-s", "--status", action="store_true", help="Show Wi-Fi & lock status")
     wifi_mut.add_argument(
         "-m", "--mac", nargs="*", metavar="MAC",
-        help="Change MAC address to specified MAC, or randomize if omitted"
+        help="Change MAC address to specified MAC, randomize if omitted, or show MAC info ('show')"
     )
     wifi_mut.add_argument(
         "-r", "--reset-mac", nargs="*", metavar="PROFILE",

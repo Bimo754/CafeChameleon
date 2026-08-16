@@ -6,7 +6,7 @@ import sys
 
 from cafe_chameleon.ui.console import log_minus
 from cafe_chameleon.network.mac import is_valid_mac
-from cafe_chameleon.network.nmcli import show_status, show_wifi_scan, lock_bssid, restore_auto, reset_mac, release_interface, change_mac, reconnect_wifi
+from cafe_chameleon.network.nmcli import show_status, show_wifi_scan, show_mac, lock_bssid, restore_auto, reset_mac, release_interface, change_mac, reconnect_wifi
 from cafe_chameleon.network.hotspot import share_wifi_hotspot
 
 
@@ -57,6 +57,34 @@ def run_wifi(args) -> None:
         restore_auto(profile)
     elif getattr(args, "mac", None) is not None:
         mac_args = args.mac
+        show_action = any(a.lower() in ("show", "list", "ls", "info", "status", "get") for a in mac_args)
+        if show_action:
+            non_show = [a for a in mac_args if a.lower() not in ("show", "list", "ls", "info", "status", "get")]
+            target_iface = None
+            target_prof = None
+            if len(non_show) == 1:
+                arg = non_show[0]
+                if arg.startswith(("wlan", "wlp", "eth", "en", "mon")):
+                    target_iface = arg
+                else:
+                    target_prof = arg
+            elif len(non_show) >= 2:
+                iface_idx = None
+                for idx, arg in enumerate(non_show):
+                    if arg.startswith(("wlan", "wlp", "eth", "en", "mon")):
+                        iface_idx = idx
+                        break
+                if iface_idx is not None:
+                    target_iface = non_show[iface_idx]
+                    prof_parts = [a for i, a in enumerate(non_show) if i != iface_idx]
+                    target_prof = " ".join(prof_parts).strip() if prof_parts else None
+                else:
+                    target_prof = " ".join(non_show).strip() if non_show else None
+
+            if not show_mac(interface=target_iface, profile=target_prof):
+                sys.exit(1)
+            return
+
         target_mac = None
         profile = None
         if len(mac_args) == 0:

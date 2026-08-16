@@ -139,12 +139,13 @@ def show_status() -> None:
     trace(f"[FEATURE] Querying Wi-Fi status for active profile '{profile}'")
     print(f"\n{BOLD}{CYAN}=== WI-FI STATUS ==={RESET}")
     if profile:
-        print(f"{BOLD}Profile{RESET} : {CYAN}{profile}{RESET}")
+        print(f"{BOLD}{'Profile':<14}{RESET}: {CYAN}{profile}{RESET}")
         rc, bssid_lock = _run(["nmcli", "-g", "802-11-wireless.bssid", "connection", "show", profile])
-        if bssid_lock:
-            print(f"{BOLD}Lock{RESET}    : {YELLOW}LOCKED ({bssid_lock}){RESET}")
+        cleaned_bssid = bssid_lock.replace(r"\:", ":").replace("\\", "").strip() if bssid_lock else ""
+        if cleaned_bssid:
+            print(f"{BOLD}{'Lock':<14}{RESET}: {YELLOW}LOCKED ({cleaned_bssid}){RESET}")
         else:
-            print(f"{BOLD}Lock{RESET}    : {GREEN}AUTO (Roaming){RESET}")
+            print(f"{BOLD}{'Lock':<14}{RESET}: {GREEN}AUTO (Roaming){RESET}")
         
         details = {}
         rc, out = _run(["nmcli", "-t", "-f", "active,bssid,ssid,signal,security", "dev", "wifi"], debug=False)
@@ -160,7 +161,67 @@ def show_status() -> None:
                     break
 
         for k, v in details.items():
-            print(f"{BOLD}{k:<12}{RESET}: {v}")
+            print(f"{BOLD}{k:<14}{RESET}: {v}")
+
+        from cafe_chameleon.scanners.detector import auto_detect_network_params
+        from cafe_chameleon.network.mac import get_current_mac, get_permanent_mac
+        params = auto_detect_network_params()
+        iface = params.get("interface") or "wlan0"
+        curr_mac = get_current_mac(iface)
+        perm_mac = get_permanent_mac(iface)
+        if curr_mac:
+            status_tag = f" {BOLD}{YELLOW}[SPOOFED]{RESET}" if (perm_mac and curr_mac.lower() != perm_mac.lower()) else f" {BOLD}{GREEN}[PERMANENT]{RESET}"
+            print(f"{BOLD}{'Current MAC':<14}{RESET}: {GREEN}{curr_mac.lower()}{RESET}{status_tag}")
+        if perm_mac:
+            print(f"{BOLD}{'Permanent MAC':<14}{RESET}: {CYAN}{perm_mac.lower()}{RESET}")
     else:
         print(f"{YELLOW}No active connection.{RESET}")
     print(f"{CYAN}===================={RESET}\n")
+
+
+def show_mac(interface: str | None = None, profile: str | None = None) -> bool:
+    """Displays the currently configured/active MAC address and the permanent hardware MAC address."""
+    from cafe_chameleon.scanners.detector import auto_detect_network_params
+    from cafe_chameleon.network.mac import get_current_mac, get_permanent_mac
+
+    profile = profile or get_active_profile()
+
+    if not interface and profile:
+        rc, iface_val = _run(["nmcli", "-g", "connection.interface-name", "connection", "show", profile], debug=False)
+        if rc == 0 and iface_val.strip():
+            interface = iface_val.strip()
+
+    if not interface:
+        params = auto_detect_network_params()
+        interface = params.get("interface") or "wlan0"
+
+    trace(f"[FEATURE] Showing MAC info for interface '{interface}' (Profile: '{profile or 'None'}')")
+
+    curr_mac = get_current_mac(interface)
+    perm_mac = get_permanent_mac(interface)
+
+    print(f"\n{BOLD}{CYAN}=== MAC ADDRESS INFO ==={RESET}")
+    print(f"{BOLD}{'Interface':<14}{RESET}: {CYAN}{interface}{RESET}")
+    if profile:
+        print(f"{BOLD}{'Profile':<14}{RESET}: {CYAN}{profile}{RESET}")
+
+    if curr_mac:
+        if perm_mac and curr_mac.lower() != perm_mac.lower():
+            status_tag = f" {BOLD}{YELLOW}[SPOOFED]{RESET}"
+        elif perm_mac and curr_mac.lower() == perm_mac.lower():
+            status_tag = f" {BOLD}{GREEN}[PERMANENT]{RESET}"
+        else:
+            status_tag = ""
+        print(f"{BOLD}{'Current MAC':<14}{RESET}: {GREEN}{curr_mac.lower()}{RESET}{status_tag}")
+    else:
+        print(f"{BOLD}{'Current MAC':<14}{RESET}: {YELLOW}Unknown{RESET}")
+
+    if perm_mac:
+        print(f"{BOLD}{'Permanent MAC':<14}{RESET}: {CYAN}{perm_mac.lower()}{RESET}")
+    else:
+        print(f"{BOLD}{'Permanent MAC':<14}{RESET}: {YELLOW}Unknown{RESET}")
+
+    print(f"{CYAN}========================{RESET}\n")
+    return True
+
+

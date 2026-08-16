@@ -75,10 +75,10 @@ CafeChameleon provides a structured testbed to evaluate these attack surfaces an
 ### Wi-Fi Controller (`wifi`)
 * **BSSID Locking (`-l` / `--lock`)**: Binds NetworkManager connection profiles to a designated physical BSSID.
 * **Auto-Roam (`-a` / `--auto`)**: Evaluates available Access Points and roams dynamically to the strongest RSSI source.
-* **MAC Spoofing / Randomization (`-m` / `--mac`)**: Sets the MAC address to a specified value, or randomizes it if omitted.
+* **MAC Spoofing / Randomization (`-m` / `--mac`)**: Sets the MAC address to a specified value, randomizes it if omitted, or displays the current set and permanent MAC addresses with `--mac show`.
 * **MAC Reset (`-r` / `--reset-mac`)**: Restores hardware MAC addresses to permanent factory defaults.
 * **Interface Release (`--release`)**: Completely unlocks the wireless interface (teardown monitor mode, terminate DHCP clients, restore NetworkManager).
-* **Connection Status (`-s` / `--status`)**: Queries current BSSID lock configurations, active profiles, and link parameters.
+* **Connection Status (`-s` / `--status`)**: Queries current BSSID lock configurations, active profiles, MAC addresses, and link parameters.
 
 ### Blacklist Manager (`blacklist`)
 * **Target Exclusion**: Automatically excludes blacklisted client MACs and Access Point BSSIDs in both `simple` and `aggressive` modes.
@@ -197,6 +197,9 @@ python3 main.py wifi -a
 
 # Randomize MAC address on active connection
 sudo python3 main.py wifi -m
+
+# Display current set MAC address and permanent hardware MAC address
+sudo python3 main.py wifi --mac show
 
 # Set a specific MAC address on active connection
 sudo python3 main.py wifi -m 00:11:22:33:44:55

@@ -32,7 +32,7 @@ def get_permanent_mac(interface: str) -> str | None:
     try:
         with open(f"/sys/class/net/{interface}/perm_addr", "r") as f:
             addr = f.read().strip().lower()
-            if addr and is_valid_mac(addr):
+            if addr and is_valid_mac(addr) and addr != "00:00:00:00:00:00":
                 return addr
     except Exception:
         pass
@@ -40,9 +40,23 @@ def get_permanent_mac(interface: str) -> str | None:
     rc, out = _run(["macchanger", "-s", interface], debug=False)
     if rc == 0 and out:
         m = PERM_MAC_REGEX.search(out)
-        if m:
+        if m and is_valid_mac(m.group(1)) and m.group(1).lower() != "00:00:00:00:00:00":
             return m.group(1).lower()
+
+    rc, out = _run(["ethtool", "-P", interface], debug=False)
+    if rc == 0 and out:
+        m = re.search(r"Permanent address:\s+([0-9a-fa-f:]+)", out, re.IGNORECASE)
+        if m and is_valid_mac(m.group(1)) and m.group(1).lower() != "00:00:00:00:00:00":
+            return m.group(1).lower()
+
+    rc, out = _run(["nmcli", "-t", "-f", "GENERAL.PERM-HWADDR", "dev", "show", interface], debug=False)
+    if rc == 0 and out:
+        val = out.replace("GENERAL.PERM-HWADDR:", "").strip().lower()
+        if is_valid_mac(val) and val != "00:00:00:00:00:00":
+            return val
+
     return get_current_mac(interface)
+
 
 
 def get_attack_mac(interface: str) -> str:
@@ -142,7 +156,7 @@ def reset_mac_address(interface: str, profile: str | None = None) -> bool:
 
 
 def get_current_mac(interface: str) -> str | None:
-    """Gets the current MAC address of an interface using sysfs, falling back to macchanger -s."""
+    """Gets the current MAC address of an interface using sysfs, falling back to macchanger -s, ip link, or nmcli."""
     try:
         with open(f"/sys/class/net/{interface}/address", "r") as f:
             addr = f.read().strip().lower()
@@ -154,6 +168,20 @@ def get_current_mac(interface: str) -> str | None:
     rc, out = _run(["macchanger", "-s", interface], debug=False)
     if rc == 0 and out:
         m = CURR_MAC_REGEX.search(out)
-        if m:
+        if m and is_valid_mac(m.group(1)):
             return m.group(1).lower()
+
+    rc, out = _run(["ip", "-o", "link", "show", "dev", interface], debug=False)
+    if rc == 0 and out:
+        m = re.search(r"link/ether\s+([0-9a-fa-f:]+)", out, re.IGNORECASE)
+        if m and is_valid_mac(m.group(1)):
+            return m.group(1).lower()
+
+    rc, out = _run(["nmcli", "-t", "-f", "GENERAL.HWADDR", "dev", "show", interface], debug=False)
+    if rc == 0 and out:
+        val = out.replace("GENERAL.HWADDR:", "").strip().lower()
+        if is_valid_mac(val):
+            return val
+
     return None
+
