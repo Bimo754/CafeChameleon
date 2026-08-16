@@ -8,7 +8,6 @@ import shutil
 from cafe_chameleon.utils.process import _run
 from cafe_chameleon.utils.tracing import trace
 from cafe_chameleon.ui.console import log_hijack, set_hijack_status
-from cafe_chameleon.scanners.arp_scanner import scan_subnet
 from .kernel_cache import check_kernel_cache, is_valid_ipv4
 
 
@@ -60,6 +59,7 @@ def sweep_l3_and_fallback(mac_clean: str, interface: str, target_subnet: str | N
     set_hijack_status(ip=None, mac=mac_clean, technique="ARP Scan Fallback", clear_section2=True)
     log_hijack("[*] Running Scapy ARP scan fallback...")
     trace(f"[*] Resolving {mac_clean} -> ARP Scan Fallback...")
+    from cafe_chameleon.scanners.arp_scanner import scan_subnet
     hosts = scan_subnet(target_subnet, interface, silent=True)
     for h in hosts:
         if h["mac"].lower() == mac_clean and is_valid_ipv4(h["ip"], subnet_cidr=target_subnet):

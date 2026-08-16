@@ -20,7 +20,7 @@ from cafe_chameleon.ui.console import (
 from cafe_chameleon.ui.prompts import ask_proceed, ask_restore
 from cafe_chameleon.network.internet import has_internet
 from cafe_chameleon.network.sysfs import wait_for_carrier
-from cafe_chameleon.network.hijack import hijack, restore
+from cafe_chameleon.network.hijack import hijack
 from cafe_chameleon.network.dhcp import query_dhcp_lease_ip
 from cafe_chameleon.network.mac import set_mac_address
 from cafe_chameleon.network.nmcli import lock_bssid
@@ -120,7 +120,7 @@ def test_air_client_targets(
     local_mac = auto_params.get("local_mac", "")
     ipmask = auto_params.get("cidr", f"{auto_ip}/{netmask}")
 
-    set_restore_params(interface, local_mac, ipmask, broadcast, gw_ip, callback=restore, profile=profile)
+    set_restore_params(interface, local_mac, ipmask, broadcast, gw_ip, profile=profile)
 
     force_deauth = getattr(args, "force_deauth", False)
     blacklist = load_blacklist()
@@ -193,7 +193,8 @@ def test_air_client_targets(
                     log_main("[-] Stopped after impersonation.")
                     has_acc = hijack_success or has_internet()
                     if ask_restore(default_restore=not has_acc):
-                        restore(interface, local_mac, ipmask, broadcast, gw_ip)
+                        from cafe_chameleon.network.nmcli import release_interface
+                        release_interface(interface=interface, profile=profile)
                     else:
                         log_plus("Keeping current network config.")
                     return has_acc, True
@@ -210,13 +211,12 @@ def test_air_client_targets(
     has_acc = has_internet()
     if getattr(args, "force", False):
         if ask_restore(default_restore=not has_acc):
-            restore(interface, local_mac, ipmask, broadcast, gw_ip)
+            from cafe_chameleon.network.nmcli import release_interface
+            release_interface(interface=interface, profile=profile)
         else:
             log_plus("Keeping current network config.")
     else:
-        if not has_acc:
-            restore(interface, local_mac, ipmask, broadcast, gw_ip)
-        else:
+        if has_acc:
             log_plus("Internet verified. Preserving configuration.")
 
     return has_acc, False

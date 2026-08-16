@@ -16,7 +16,7 @@ from cafe_chameleon.ui.console import (
 from cafe_chameleon.ui.prompts import ask_proceed, ask_restore
 from cafe_chameleon.network.nmcli import get_active_security
 from cafe_chameleon.network.internet import has_internet
-from cafe_chameleon.network.hijack import hijack, restore
+from cafe_chameleon.network.hijack import hijack
 from cafe_chameleon.scanners.resolver import is_valid_ipv4
 from cafe_chameleon.utils.blacklist import is_blacklisted, load_blacklist
 
@@ -57,7 +57,8 @@ def test_discovered_hosts(unique_hosts: list[dict], interface: str, gw_ip: str, 
                         log_main("[-] Stopped after impersonation.")
                         has_acc = hijack_success or has_internet()
                         if ask_restore(default_restore=not has_acc):
-                            restore(interface, local_mac, ipmask, broadcast, gw_ip)
+                            from cafe_chameleon.network.nmcli import release_interface
+                            release_interface(interface=interface, profile=profile)
                         else:
                             log_plus("Keeping current network config.")
                         set_hijack_status(ip=None, mac=None, technique="Idle")

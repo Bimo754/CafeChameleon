@@ -15,7 +15,6 @@ from cafe_chameleon.ui.console import (
 from cafe_chameleon.ui.prompts import ask_restore
 from cafe_chameleon.network.internet import has_internet
 from cafe_chameleon.network.sysfs import wait_for_carrier
-from cafe_chameleon.network.hijack import restore
 from cafe_chameleon.network.mac import get_attack_mac, set_mac_address
 from cafe_chameleon.scanners.detector import auto_detect_network_params, get_interface_details
 from cafe_chameleon.scanners.arp_scanner import scan_subnet
@@ -65,7 +64,7 @@ def run_simple(args, quiet_header: bool = False) -> bool:
     broadcast = auto_params.get("broadcast", "")
     ipmask = auto_params.get("cidr", f"{local_ip}/{netmask}")
 
-    set_restore_params(interface, local_mac, ipmask, broadcast, gw_ip, callback=restore, profile=profile)
+    set_restore_params(interface, local_mac, ipmask, broadcast, gw_ip, profile=profile)
 
     attack_mac = get_attack_mac(interface)
     trace(f"[FEATURE] Applying attack MAC {attack_mac} on {interface} for simple mode scan")
@@ -149,23 +148,11 @@ def run_simple(args, quiet_header: bool = False) -> bool:
     has_acc = has_internet()
     if getattr(args, "force", False):
         if ask_restore(default_restore=not has_acc):
-            restore(interface, local_mac, ipmask, broadcast, gw_ip, profile=profile)
-            if not has_acc:
-                try:
-                    from cafe_chameleon.network.nmcli import release_interface
-                    release_interface(interface=interface, profile=profile)
-                except Exception:
-                    pass
+            from cafe_chameleon.network.nmcli import release_interface
+            release_interface(interface=interface, profile=profile)
         else:
             log_plus("Keeping current MAC and network configuration.")
     else:
-        if not has_acc:
-            restore(interface, local_mac, ipmask, broadcast, gw_ip, profile=profile)
-            try:
-                from cafe_chameleon.network.nmcli import release_interface
-                release_interface(interface=interface, profile=profile)
-            except Exception:
-                pass
-        else:
+        if has_acc:
             log_plus("Internet verified. Preserving working MAC and network configuration.")
     return has_acc

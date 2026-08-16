@@ -55,7 +55,7 @@ def close_xterm():
 
 
 def restore_and_exit(reason: str = "Terminated."):
-    """Restores network settings if set and exits process cleanly, ignoring subsequent Ctrl+C signals."""
+    """Releases interface cleanly on termination and exits process, ignoring subsequent Ctrl+C signals."""
     # Catch and ignore all further SIGINT/SIGTERM signals so user Ctrl+C cannot abort cleanup midway
     try:
         signal.signal(signal.SIGINT, signal.SIG_IGN)
@@ -66,30 +66,7 @@ def restore_and_exit(reason: str = "Terminated."):
     sys.stdout.write("\n")
     print(f"\033[91m[Warning] Process exiting: {reason}\033[0m")
     
-    callback = get_restore_callback()
     params = get_restore_params()
-
-    if callback and params and params.get("interface"):
-        try:
-            callback(
-                params["interface"],
-                params["macaddress"],
-                params["ipmask"],
-                params["broadcast"],
-                params["gateway"],
-                profile=params.get("profile")
-            )
-        except Exception:
-            try:
-                callback(
-                    params["interface"],
-                    params["macaddress"],
-                    params["ipmask"],
-                    params["broadcast"],
-                    params["gateway"]
-                )
-            except Exception:
-                pass
 
     # Release and unlock wireless interface (wifi --release mode)
     try:

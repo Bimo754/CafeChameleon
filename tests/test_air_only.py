@@ -100,10 +100,8 @@ class TestAirOnlyExecution(unittest.TestCase):
     @patch("cafe_chameleon.modes.aggressive.runner.set_mac_address", return_value=True)
     @patch("cafe_chameleon.modes.aggressive.runner.test_air_client_targets")
     @patch("cafe_chameleon.modes.aggressive.runner.run_scan_wrapper")
-    @patch("cafe_chameleon.modes.aggressive.runner.restore_auto")
     def test_air_only_skips_subnet_scanning_on_all_bssids(
         self,
-        mock_restore_auto,
         mock_run_scan_wrapper,
         mock_test_air_targets,
         mock_set_mac,
@@ -156,7 +154,6 @@ class TestAirOnlyExecution(unittest.TestCase):
 
         # Both BSSIDs should have been locked and tried
         self.assertEqual(mock_lock_bssid.call_count, 2)
-        mock_restore_auto.assert_called_once_with("Cafe_WiFi")
 
     @patch("cafe_chameleon.modes.aggressive.runner.get_active_profile", return_value="Cafe_WiFi")
     @patch("cafe_chameleon.modes.aggressive.runner.get_ssid_for_profile", return_value="Cafe_SSID")
@@ -168,10 +165,8 @@ class TestAirOnlyExecution(unittest.TestCase):
     @patch("cafe_chameleon.modes.aggressive.runner.set_mac_address", return_value=True)
     @patch("cafe_chameleon.modes.aggressive.runner.test_air_client_targets")
     @patch("cafe_chameleon.modes.aggressive.runner.run_scan_wrapper")
-    @patch("cafe_chameleon.modes.aggressive.runner.restore_auto")
     def test_regular_air_performs_subnet_scanning_when_air_targets_fail(
         self,
-        mock_restore_auto,
         mock_run_scan_wrapper,
         mock_test_air_targets,
         mock_set_mac,

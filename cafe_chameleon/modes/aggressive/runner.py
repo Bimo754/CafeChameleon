@@ -21,15 +21,13 @@ from cafe_chameleon.ui.console import (
 )
 from cafe_chameleon.network.internet import has_internet
 from cafe_chameleon.network.sysfs import wait_for_carrier
-from cafe_chameleon.network.hijack import restore
 from cafe_chameleon.network.mac import set_mac_address, get_attack_mac
 from cafe_chameleon.utils.tracing import trace
 from cafe_chameleon.network.nmcli import (
     get_active_profile,
     get_ssid_for_profile,
     scan_bssids_for_ssid,
-    lock_bssid,
-    restore_auto
+    lock_bssid
 )
 from cafe_chameleon.config import DEFAULT_AIR_DURATION
 from cafe_chameleon.scanners.detector import auto_detect_network_params
@@ -291,7 +289,6 @@ def run_aggressive(args) -> bool:
                 log_main("[-] Double Ctrl+C. Exiting...")
                 if is_monitor_mode_active(interface):
                     set_managed_mode(interface)
-                restore_auto(profile)
                 raise
 
             last_skip_time = now
@@ -302,13 +299,6 @@ def run_aggressive(args) -> bool:
             try:
                 if is_monitor_mode_active(interface):
                     set_managed_mode(interface)
-                auto_params = auto_detect_network_params(target_iface=interface)
-                gw_ip = auto_params.get("gateway_ip", "")
-                local_mac = auto_params.get("local_mac", "")
-                ipmask = auto_params.get("cidr", "")
-                broadcast = auto_params.get("broadcast", "")
-                if interface and local_mac and ipmask:
-                    restore(interface, local_mac, ipmask, broadcast, gw_ip, profile=profile)
             except Exception:
                 pass
             time.sleep(0.5)
@@ -316,13 +306,6 @@ def run_aggressive(args) -> bool:
 
     log_warning("Aggressive completed all BSSIDs without internet access.")
     log_main("[-] Aggressive completed all BSSIDs without internet access.")
-    log_step("Restoring auto-roaming on profile...")
     if is_monitor_mode_active(interface):
         set_managed_mode(interface)
-    restore_auto(profile)
-    try:
-        from cafe_chameleon.network.nmcli import release_interface
-        release_interface(interface=interface, profile=profile)
-    except Exception:
-        pass
     return False

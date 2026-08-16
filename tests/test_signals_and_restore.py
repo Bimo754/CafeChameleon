@@ -14,18 +14,17 @@ class TestSignalsAndRestoreCleanup(unittest.TestCase):
 
     @patch("os._exit")
     @patch("cafe_chameleon.utils.signals.close_xterm")
-    @patch("cafe_chameleon.utils.signals.get_restore_callback")
     @patch("cafe_chameleon.utils.signals.get_restore_params")
     @patch("cafe_chameleon.network.mac.reset_mac_address")
     @patch("cafe_chameleon.scanners.air.is_monitor_mode_active")
     @patch("cafe_chameleon.scanners.air.set_managed_mode")
     @patch("cafe_chameleon.utils.process._run")
+    @patch("cafe_chameleon.network.nmcli.release_interface", side_effect=Exception("Simulated release failure"))
     def test_restore_and_exit_shields_sigint_and_runs_fallback(
-        self, mock_run, mock_set_managed, mock_is_mon, mock_reset_mac,
-        mock_get_params, mock_get_callback, mock_close, mock_exit
+        self, mock_release, mock_run, mock_set_managed, mock_is_mon, mock_reset_mac,
+        mock_get_params, mock_close, mock_exit
     ):
-        mock_get_callback.return_value = None
-        mock_get_params.return_value = None
+        mock_get_params.return_value = {"interface": "wlan0", "profile": "MyProfile"}
         mock_is_mon.return_value = True
         mock_run.return_value = (0, "")
         mock_reset_mac.return_value = True
@@ -46,15 +45,11 @@ class TestSignalsAndRestoreCleanup(unittest.TestCase):
 
     @patch("os._exit")
     @patch("cafe_chameleon.utils.signals.close_xterm")
-    @patch("cafe_chameleon.utils.signals.get_restore_callback")
     @patch("cafe_chameleon.utils.signals.get_restore_params")
-    @patch("cafe_chameleon.scanners.air.mode.is_monitor_mode_active")
-    @patch("cafe_chameleon.network.mac.reset_mac_address")
-    def test_restore_and_exit_with_registered_callback(
-        self, mock_reset_mac, mock_is_mon, mock_get_params, mock_get_callback, mock_close, mock_exit
+    @patch("cafe_chameleon.network.nmcli.release_interface")
+    def test_restore_and_exit_calls_release_interface_with_params(
+        self, mock_release, mock_get_params, mock_close, mock_exit
     ):
-        mock_callback = MagicMock()
-        mock_get_callback.return_value = mock_callback
         mock_get_params.return_value = {
             "interface": "wlan0",
             "macaddress": "00:11:22:33:44:55",
@@ -63,18 +58,10 @@ class TestSignalsAndRestoreCleanup(unittest.TestCase):
             "gateway": "10.0.0.1",
             "profile": "MyProfile"
         }
-        mock_is_mon.return_value = False
 
-        restore_and_exit("Callback test")
+        restore_and_exit("Release test")
 
-        mock_callback.assert_called_once_with(
-            "wlan0",
-            "00:11:22:33:44:55",
-            "10.0.0.5/24",
-            "10.0.0.255",
-            "10.0.0.1",
-            profile="MyProfile"
-        )
+        mock_release.assert_called_once_with(interface="wlan0", profile="MyProfile")
         mock_close.assert_called_once()
         mock_exit.assert_called_once_with(0)
 
