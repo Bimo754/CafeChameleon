@@ -18,7 +18,7 @@ from cafe_chameleon.ui.console import (
 from cafe_chameleon.network.sysfs import wait_for_carrier, get_carrier_status
 from cafe_chameleon.network.mac import get_current_mac, get_permanent_mac, is_valid_mac
 from cafe_chameleon.network.arp import send_gratuitous_arp
-from cafe_chameleon.network.internet import has_internet
+from cafe_chameleon.network.internet import has_internet, wait_for_gateway_pong
 from .profiles import get_active_profile, get_ssid_for_profile
 from .bssid import get_connected_bssid, scan_bssids_for_ssid
 
@@ -182,6 +182,7 @@ def perform_reconnect(
                 _run(["ip", "route", "flush", "dev", interface], debug=False)
                 _run(["ip", "route", "replace", "default", "via", gateway, "dev", interface, "onlink"], debug=False)
                 send_gratuitous_arp(interface, local_ip, gateway)
+                wait_for_gateway_pong(gateway_ip=gateway, interface=interface, timeout=2.0)
 
         # Verify reconnection
         connected_bssid = get_connected_bssid(interface)
@@ -248,7 +249,7 @@ def monitor_and_auto_reconnect(
             time.sleep(check_interval)
             carrier = get_carrier_status(interface)
             current_bssid = get_connected_bssid(interface)
-            internet_ok = has_internet(timeout=1.0, check_speed=False) if carrier else False
+            internet_ok = has_internet(timeout=1.0, check_speed=False, gateway_ip=gateway, interface=interface, ping_gateway=bool(gateway)) if carrier else False
 
             needs_reconnect = False
             if not carrier:

@@ -14,7 +14,7 @@ from cafe_chameleon.network.nmcli import get_active_profile
 from cafe_chameleon.network.mac import set_mac_address
 from cafe_chameleon.network.arp import send_gratuitous_arp, start_background_garp
 from cafe_chameleon.network.deauth import send_deauth
-from cafe_chameleon.network.internet import has_internet, test_internet_speed
+from cafe_chameleon.network.internet import has_internet, test_internet_speed, wait_for_gateway_pong
 
 
 def hijack(
@@ -106,10 +106,17 @@ def hijack(
                 if not verified:
                     trace(f"[-] Interface verify failed ({attempt}/{max_retries}) [MAC:{last_mac_ok} IP:{last_ip_ok} LINK:{last_conn_ok}]")
                 else:
-                    log_hijack("[*] Verifying internet connectivity...")
-                    has_base = has_internet(timeout=1.0, check_speed=False)
+                    gw_target = gateway or "default"
+                    log_hijack(f"[*] Pinging gateway ({gw_target}) to confirm network connectivity...")
+                    gw_pong = wait_for_gateway_pong(gateway_ip=gateway, interface=interface, timeout=3.0)
+                    if not gw_pong:
+                        log_hijack("\033[91m[-] Gateway unreachable (No ping response)\033[0m")
+                        return False
+
+                    log_hijack("[*] Gateway pong received -> Verifying internet connectivity...")
+                    has_base = has_internet(timeout=1.0, check_speed=False, gateway_ip=gateway, interface=interface, ping_gateway=False)
                     if not has_base:
-                        log_hijack("\033[91m[-] Target unreachable (Gateway/DNS failed)\033[0m")
+                        log_hijack("\033[91m[-] Target unreachable (DNS/Internet failed)\033[0m")
                         return False
 
                     is_fast, speed_val = test_internet_speed(timeout=1.5, min_speed_kbps=5.0)

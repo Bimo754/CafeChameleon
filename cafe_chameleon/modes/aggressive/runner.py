@@ -231,7 +231,7 @@ def run_aggressive(args) -> bool:
 
             wait_for_carrier(interface, timeout=6.0)
 
-            if has_internet():
+            if has_internet(interface=interface, ping_gateway=True):
                 log_main(f"\033[92m[+] SUCCESS! Internet verified on {target_bssid}!\033[0m")
                 if not getattr(args, "force", False):
                     handle_auto_share_if_requested(args, interface)

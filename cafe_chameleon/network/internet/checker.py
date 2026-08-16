@@ -9,13 +9,29 @@ import urllib.error
 from cafe_chameleon.config import PUBLIC_DNS_ENDPOINTS, HTTP_HEADERS, DEFAULT_SPEED_MIN_KBPS
 from .sockets import _probe_socket
 from .speed import test_internet_speed
+from .gateway import wait_for_gateway_pong
 
 
-def has_internet(timeout: float = 0.8, strict: bool = True, check_speed: bool = True, min_speed_kbps: float = DEFAULT_SPEED_MIN_KBPS) -> bool:
+def has_internet(
+    timeout: float = 0.8,
+    strict: bool = True,
+    check_speed: bool = True,
+    min_speed_kbps: float = DEFAULT_SPEED_MIN_KBPS,
+    gateway_ip: str | None = None,
+    interface: str | None = None,
+    ping_gateway: bool = False,
+    gateway_timeout: float = 2.0
+) -> bool:
     """
     Intense multi-stage internet verification check to guard against fake internet,
     captive portal walled gardens, and severely throttled connections.
+    Optionally pings gateway first and triggers internet checks the millisecond a pong is received.
     """
+    if ping_gateway or gateway_ip:
+        gw_ok = wait_for_gateway_pong(gateway_ip=gateway_ip, interface=interface, timeout=gateway_timeout)
+        if not gw_ok:
+            return False
+
     probe_timeout = min(timeout, 0.35)
     socket_passed = False
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(PUBLIC_DNS_ENDPOINTS)) as executor:
