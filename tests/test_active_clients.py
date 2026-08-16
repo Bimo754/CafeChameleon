@@ -118,6 +118,27 @@ class TestActiveClientDetection(unittest.TestCase):
         self.assertNotIn(self.client1, bssid_to_clients[self.bssid1])
         mock_log_air.assert_called_with(f"  [+] Active rebound: {self.client1} -> BSSID {self.bssid2}")
 
+    @patch("cafe_chameleon.scanners.air.packet_parser.log_air")
+    def test_rebound_with_ip_does_not_log_ip(self, mock_log_air):
+        from scapy.all import ARP
+        bssid_to_clients = {self.bssid1: {}, self.bssid2: {}}
+        client_metadata = {}
+
+        # 1. Initially seen on BSSID 1 with ARP / IP 10.0.0.55
+        pkt1 = Dot11(FCfield=1, type=2, subtype=0, addr1=self.bssid1, addr2=self.client1, addr3=self.bssid1) / ARP(psrc="10.0.0.55", hwsrc=self.client1)
+        parse_air_packet(pkt1, self.target_bssids, self.ignore_macs, bssid_to_clients, client_metadata=client_metadata)
+        mock_log_air.assert_called_with(f"  [+] Active client: {self.client1} on BSSID {self.bssid1}")
+
+        # 2. Stronger signal on BSSID 2 triggers rebound
+        pkt2 = RadioTap(dBm_AntSignal=-40) / Dot11(FCfield=1, type=2, subtype=0, addr1=self.bssid2, addr2=self.client1, addr3=self.bssid2) / Raw(b"data")
+        parse_air_packet(pkt2, self.target_bssids, self.ignore_macs, bssid_to_clients, client_metadata=client_metadata)
+
+        # Assert log_air call did not include IP
+        mock_log_air.assert_called_with(f"  [+] Rebound: {self.client1} -> BSSID {self.bssid2}")
+        for call_args in mock_log_air.call_args_list:
+            logged_msg = call_args[0][0]
+            self.assertNotIn("10.0.0.55", logged_msg)
+
     def test_downlink_data_frame_marks_client_active(self):
         bssid_to_clients = {self.bssid1: {}}
         client_metadata = {}
