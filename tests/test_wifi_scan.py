@@ -171,6 +171,115 @@ class TestWiFiScan(unittest.TestCase):
             run_wifi(args)
         self.assertEqual(cm.exception.code, 1)
 
+    def test_freq_to_channel_conversions(self):
+        from cafe_chameleon.network.nmcli.bssid import freq_to_channel
+        # 2.4 GHz
+        self.assertEqual(freq_to_channel(2412), 1)
+        self.assertEqual(freq_to_channel(2437), 6)
+        self.assertEqual(freq_to_channel(2462), 11)
+        self.assertEqual(freq_to_channel(2472), 13)
+        self.assertEqual(freq_to_channel(2484), 14)
+        # 5 GHz
+        self.assertEqual(freq_to_channel(5180), 36)
+        self.assertEqual(freq_to_channel(5200), 40)
+        self.assertEqual(freq_to_channel(5745), 149)
+        self.assertEqual(freq_to_channel(5825), 165)
+        # Invalid / 0
+        self.assertEqual(freq_to_channel(1000), 0)
+
+    def test_dbm_to_signal_percentage(self):
+        from cafe_chameleon.network.nmcli.bssid import dbm_to_signal_percentage
+        self.assertEqual(dbm_to_signal_percentage(-50.0), 100)
+        self.assertEqual(dbm_to_signal_percentage(-30.0), 100)
+        self.assertEqual(dbm_to_signal_percentage(-75.0), 50)
+        self.assertEqual(dbm_to_signal_percentage(-90.0), 20)
+        self.assertEqual(dbm_to_signal_percentage(-100.0), 0)
+        self.assertEqual(dbm_to_signal_percentage(-110.0), 0)
+
+    def test_parse_iw_scan_dump_extracts_properties(self):
+        from cafe_chameleon.network.nmcli.bssid import parse_iw_scan_dump
+        mock_dump = """
+BSS 00:11:22:33:44:55(on wlan0) -- associated
+\tTSF: 123456 usec
+\tfreq: 2437.0
+\tbeacon interval: 100 TUs
+\tcapability: ESS Privacy ShortSlotTime
+\tsignal: -60.00 dBm
+\tSSID: TestNetwork
+\tDS Parameter set: channel 6
+\tRSN:\t * Version: 1
+\t\t * Group cipher: CCMP
+\t\t * Pairwise ciphers: CCMP
+\t\t * Authentication suites: PSK
+BSS aa:bb:cc:dd:ee:ff(on wlan0)
+\tfreq: 5180.0
+\tsignal: -80.00 dBm
+\tSSID: TestNetwork
+\tcapability: ESS
+BSS 11:22:33:44:55:66(on wlan0)
+\tfreq: 2412.0
+\tsignal: -70.00 dBm
+\tSSID: OtherNet
+\tWPA:\t * Version: 1
+"""
+        targets = parse_iw_scan_dump(mock_dump, target_ssid="TestNetwork")
+        self.assertEqual(len(targets), 2)
+
+        # 1st BSSID
+        self.assertEqual(targets[0].bssid, "00:11:22:33:44:55")
+        self.assertEqual(targets[0].ssid, "TestNetwork")
+        self.assertEqual(targets[0].chan, "6")
+        self.assertEqual(targets[0].signal, "80")  # 2 * (-60 + 100) = 80%
+        self.assertEqual(targets[0].security, "WPA2")
+        self.assertTrue(targets[0].active)
+
+        # 2nd BSSID (5GHz freq 5180 -> ch 36, open security)
+        self.assertEqual(targets[1].bssid, "AA:BB:CC:DD:EE:FF")
+        self.assertEqual(targets[1].ssid, "TestNetwork")
+        self.assertEqual(targets[1].chan, "36")
+        self.assertEqual(targets[1].signal, "40")  # 2 * (-80 + 100) = 40%
+        self.assertEqual(targets[1].security, "")
+        self.assertFalse(targets[1].active)
+
+    def test_merge_bssid_targets_accumulates_and_updates(self):
+        from cafe_chameleon.network.nmcli.bssid import merge_bssid_targets
+        target_map = {
+            "00:11:22:33:44:55": BSSIDTarget(bssid="00:11:22:33:44:55", ssid="NetA", signal="50", chan="1", security="WPA2", active=False)
+        }
+        new_targets = [
+            # Stronger signal + active update
+            BSSIDTarget(bssid="00:11:22:33:44:55", ssid="NetA", signal="85", chan="1", security="WPA2", active=True, bars="▂▄▆█"),
+            # Newly discovered AP
+            BSSIDTarget(bssid="AA:BB:CC:DD:EE:FF", ssid="NetA", signal="70", chan="6", security="WPA2", active=False)
+        ]
+        merge_bssid_targets(target_map, new_targets)
+
+        self.assertEqual(len(target_map), 2)
+        self.assertEqual(target_map["00:11:22:33:44:55"].signal, "85")
+        self.assertTrue(target_map["00:11:22:33:44:55"].active)
+        self.assertEqual(target_map["00:11:22:33:44:55"].bars, "▂▄▆█")
+        self.assertEqual(target_map["AA:BB:CC:DD:EE:FF"].signal, "70")
+
+    @patch("cafe_chameleon.network.nmcli.bssid._run")
+    def test_trigger_wifi_rescan_directed_and_fallback(self, mock_run):
+        from cafe_chameleon.network.nmcli.bssid import trigger_wifi_rescan
+        # 1. Directed succeeds
+        mock_run.return_value = (0, "")
+        trigger_wifi_rescan(target_ssid="TargetSSID")
+        mock_run.assert_called_with(["nmcli", "device", "wifi", "rescan", "ssid", "TargetSSID"], debug=False)
+
+        # 2. Directed fails -> fallback to general rescan
+        mock_run.side_effect = [(1, "Error"), (0, "")]
+        trigger_wifi_rescan(target_ssid="TargetSSID")
+        self.assertEqual(mock_run.call_count, 3)
+
+        # 3. No SSID -> general rescan
+        mock_run.side_effect = None
+        mock_run.return_value = (0, "")
+        trigger_wifi_rescan(target_ssid=None)
+        mock_run.assert_called_with(["nmcli", "device", "wifi", "rescan"], debug=False)
+
 
 if __name__ == "__main__":
     unittest.main()
+
