@@ -17,7 +17,8 @@ from cafe_chameleon.ui.console import (
 )
 from cafe_chameleon.network.sysfs import wait_for_carrier, get_carrier_status
 from cafe_chameleon.network.mac import get_current_mac, get_permanent_mac, is_valid_mac
-from cafe_chameleon.network.arp import send_gratuitous_arp
+from cafe_chameleon.network.arp import send_gratuitous_arp, start_background_garp, pin_gateway_neighbor
+from cafe_chameleon.network.deauth import send_deauth
 from cafe_chameleon.network.internet import has_internet, wait_for_gateway_pong
 from .profiles import get_active_profile, get_ssid_for_profile
 from .bssid import get_connected_bssid, scan_bssids_for_ssid
@@ -30,6 +31,7 @@ def reconnect_wifi(
     target_mac: str | None = None,
     target_ip: str | None = None,
     auto_loop: bool = False,
+    enable_deauth: bool = False,
     timeout: float = 5.0,
     max_retries: int = 3,
     check_interval: float = 2.0
@@ -101,6 +103,7 @@ def reconnect_wifi(
     netmask = cidr.split("/")[1] if cidr and "/" in cidr else "24"
     broadcast = params.get("broadcast", "255.255.255.255")
     gateway = params.get("gateway_ip", "")
+    gateway_mac = params.get("gateway_mac")
 
     if auto_loop:
         return monitor_and_auto_reconnect(
@@ -112,6 +115,8 @@ def reconnect_wifi(
             netmask=netmask,
             broadcast=broadcast,
             gateway=gateway,
+            gateway_mac=gateway_mac,
+            enable_deauth=enable_deauth,
             timeout=timeout,
             max_retries=max_retries,
             check_interval=check_interval
@@ -126,9 +131,42 @@ def reconnect_wifi(
         netmask=netmask,
         broadcast=broadcast,
         gateway=gateway,
+        gateway_mac=gateway_mac,
+        enable_deauth=enable_deauth,
         timeout=timeout,
         max_retries=max_retries
     )
+
+
+def soft_heal_connection(
+    interface: str,
+    local_ip: str | None,
+    netmask: str,
+    broadcast: str,
+    gateway: str,
+    gateway_mac: str | None = None
+) -> bool:
+    """
+    Performs Tier-1 Soft Route & ARP Healing without tearing down the 802.11 association.
+    Re-applies static IP and routes, re-broadcasts Gratuitous ARP, re-pins gateway neighbor,
+    and validates connectivity.
+    """
+    trace(f"[FEATURE] Soft healing connection on {interface} (IP: {local_ip or 'Dynamic'}, Gateway: {gateway or 'None'})")
+    if local_ip:
+        _run(["ip", "addr", "flush", "dev", interface, "scope", "global"], debug=False)
+        _run(["ip", "-4", "addr", "add", f"{local_ip}/{netmask}", "broadcast", broadcast, "dev", interface], debug=False)
+        if gateway:
+            _run(["ip", "route", "flush", "dev", interface], debug=False)
+            _run(["ip", "route", "replace", "default", "via", gateway, "dev", interface, "onlink"], debug=False)
+            send_gratuitous_arp(interface, local_ip, gateway)
+            if gateway_mac:
+                pin_gateway_neighbor(gateway, gateway_mac, interface)
+            gw_pong = wait_for_gateway_pong(gateway_ip=gateway, interface=interface, timeout=1.5)
+            if not gw_pong:
+                trace(f"[FEATURE] Soft heal gateway pong failed on {gateway}")
+                return False
+
+    return has_internet(timeout=1.0, check_speed=False, gateway_ip=gateway, interface=interface, ping_gateway=False)
 
 
 def perform_reconnect(
@@ -140,16 +178,23 @@ def perform_reconnect(
     netmask: str,
     broadcast: str,
     gateway: str,
+    gateway_mac: str | None = None,
+    enable_deauth: bool = False,
     timeout: float = 5.0,
     max_retries: int = 3
 ) -> bool:
     """Performs the single reconnection routine with 5s timeout and state preservation."""
-    trace(f"[FEATURE] Reconnecting to BSSID {bssid} (Profile: '{profile}', MAC: {mac}, IP: {local_ip or 'Auto'})")
+    trace(f"[FEATURE] Reconnecting to BSSID {bssid} (Profile: '{profile}', MAC: {mac}, IP: {local_ip or 'Auto'}, Deauth: {enable_deauth})")
     log_step(f"Reconnecting to BSSID {bssid} on profile '{profile}'...")
     log_info(f"MAC Address : {mac}")
     if local_ip:
         gw_str = f" (Gateway: {gateway})" if gateway else ""
         log_info(f"IP Address  : {local_ip}/{netmask}{gw_str}")
+
+    # If deauth mode is requested, send 802.11 deauth frames against competing client
+    if enable_deauth:
+        trace(f"[FEATURE] Transmitting defensive 802.11 deauth frames against competing client {mac} on {bssid}")
+        send_deauth(mac, bssid, interface)
 
     # Set BSSID lock and cloned MAC on connection profile
     _run(["nmcli", "connection", "modify", profile, "802-11-wireless.bssid", bssid], debug=False)
@@ -186,6 +231,8 @@ def perform_reconnect(
                 _run(["ip", "route", "flush", "dev", interface], debug=False)
                 _run(["ip", "route", "replace", "default", "via", gateway, "dev", interface, "onlink"], debug=False)
                 send_gratuitous_arp(interface, local_ip, gateway)
+                if gateway_mac:
+                    pin_gateway_neighbor(gateway, gateway_mac, interface)
                 wait_for_gateway_pong(gateway_ip=gateway, interface=interface, timeout=2.0)
 
         # Verify reconnection
@@ -217,6 +264,8 @@ def monitor_and_auto_reconnect(
     netmask: str,
     broadcast: str,
     gateway: str,
+    gateway_mac: str | None = None,
+    enable_deauth: bool = False,
     timeout: float = 5.0,
     max_retries: int = 3,
     check_interval: float = 2.0
@@ -224,9 +273,10 @@ def monitor_and_auto_reconnect(
     """
     Continuous auto-reconnect monitoring loop.
     Monitors interface carrier, BSSID association, and internet reachability.
-    Triggers reconnection whenever connection drops until interrupted with Ctrl+C.
+    Uses multi-tiered hysteresis and soft route/ARP healing to prevent unnecessary reconnects,
+    and keeps a background GARP heartbeat active to protect against MAC stealing.
     """
-    trace(f"[FEATURE] Starting auto-reconnect monitor on {interface} for BSSID {bssid}")
+    trace(f"[FEATURE] Starting auto-reconnect monitor on {interface} for BSSID {bssid} (Deauth: {enable_deauth})")
     log_step(f"Starting auto-reconnect monitor for BSSID {bssid}...")
     log_info("Press Ctrl+C to stop auto-reconnect.\n")
 
@@ -244,29 +294,34 @@ def monitor_and_auto_reconnect(
             netmask=netmask,
             broadcast=broadcast,
             gateway=gateway,
+            gateway_mac=gateway_mac,
+            enable_deauth=enable_deauth,
             timeout=timeout,
             max_retries=max_retries
         )
+
+    # Start background GARP heartbeat and pin gateway neighbor
+    garp_stop_event = None
+    if gateway and local_ip:
+        garp_stop_event = start_background_garp(interface, local_ip, gateway, interval=1.5)
+    if gateway and gateway_mac:
+        pin_gateway_neighbor(gateway, gateway_mac, interface)
+
+    consecutive_failures = 0
 
     try:
         while True:
             time.sleep(check_interval)
             carrier = get_carrier_status(interface)
             current_bssid = get_connected_bssid(interface)
-            internet_ok = has_internet(timeout=1.0, check_speed=False, gateway_ip=gateway, interface=interface, ping_gateway=bool(gateway)) if carrier else False
+            bssid_match = bool(current_bssid and current_bssid.upper() == bssid.upper())
 
-            needs_reconnect = False
-            if not carrier:
-                log_warning("Carrier link lost on interface.")
-                needs_reconnect = True
-            elif not current_bssid or (current_bssid.upper() != bssid.upper()):
-                log_warning(f"BSSID disconnected or changed (Current: {current_bssid or 'None'}).")
-                needs_reconnect = True
-            elif not internet_ok:
-                log_warning("Internet connectivity check failed.")
-                needs_reconnect = True
-
-            if needs_reconnect:
+            # 1. Physical Layer 2 link check: If carrier dropped or BSSID changed -> immediate Hard Reconnect
+            if not carrier or not bssid_match:
+                if not carrier:
+                    log_warning("Carrier link lost on interface.")
+                else:
+                    log_warning(f"BSSID disconnected or changed (Current: {current_bssid or 'None'}).")
                 log_wait("Auto-reconnecting to network...")
                 perform_reconnect(
                     profile=profile,
@@ -277,9 +332,62 @@ def monitor_and_auto_reconnect(
                     netmask=netmask,
                     broadcast=broadcast,
                     gateway=gateway,
+                    gateway_mac=gateway_mac,
+                    enable_deauth=enable_deauth,
                     timeout=timeout,
                     max_retries=max_retries
                 )
+                consecutive_failures = 0
+                continue
+
+            # 2. Layer 3 / Internet reachability check (Hysteresis & Soft Healing)
+            internet_ok = has_internet(
+                timeout=1.0,
+                check_speed=False,
+                gateway_ip=gateway,
+                interface=interface,
+                ping_gateway=bool(gateway)
+            )
+
+            if internet_ok:
+                consecutive_failures = 0
+            else:
+                consecutive_failures += 1
+                if consecutive_failures == 1:
+                    log_warning("Transient connectivity drop detected (evaluating stability)...")
+                elif consecutive_failures >= 2:
+                    log_wait("Internet connectivity lost. Attempting Tier-1 Soft Route & ARP Healing (0s Wi-Fi downtime)...")
+                    healed = soft_heal_connection(
+                        interface=interface,
+                        local_ip=local_ip,
+                        netmask=netmask,
+                        broadcast=broadcast,
+                        gateway=gateway,
+                        gateway_mac=gateway_mac
+                    )
+                    if healed:
+                        log_plus("Soft healing successful! Internet connectivity restored without dropping Wi-Fi.")
+                        consecutive_failures = 0
+                    else:
+                        log_warning("Soft healing exhausted. Escalating to Tier-2 Full Reconnection...")
+                        perform_reconnect(
+                            profile=profile,
+                            interface=interface,
+                            bssid=bssid,
+                            mac=mac,
+                            local_ip=local_ip,
+                            netmask=netmask,
+                            broadcast=broadcast,
+                            gateway=gateway,
+                            gateway_mac=gateway_mac,
+                            enable_deauth=enable_deauth,
+                            timeout=timeout,
+                            max_retries=max_retries
+                        )
+                        consecutive_failures = 0
     except KeyboardInterrupt:
         log_info("\nAuto-reconnect monitoring stopped by user (Ctrl+C).")
         return True
+    finally:
+        if garp_stop_event:
+            garp_stop_event.set()

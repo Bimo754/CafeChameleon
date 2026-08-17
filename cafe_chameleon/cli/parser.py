@@ -190,7 +190,7 @@ def parse_arguments(args=None):
     )
     wifi_mut.add_argument(
         "-c", "--reconnect", nargs="*", metavar="MODE",
-        help="Reconnect to already connected BSSID with active MAC & IP (optional: 'auto' for continuous reconnect)"
+        help="Reconnect to already connected BSSID with active MAC & IP ('auto' for continuous reconnect, 'deauth' for continuous reconnect with defensive deauth)"
     )
     wifi_mut.add_argument(
         "--share", nargs=2, metavar=("NAME", "PASSWORD"),

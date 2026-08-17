@@ -154,11 +154,12 @@ def run_wifi(args) -> None:
             sys.exit(1)
     elif getattr(args, "reconnect", None) is not None:
         rec_args = args.reconnect
-        auto_loop = any(a.lower() == "auto" for a in rec_args)
-        prof_parts = [a for a in rec_args if a.lower() != "auto"]
+        auto_loop = any(a.lower() in ("auto", "deauth") for a in rec_args)
+        enable_deauth = any(a.lower() == "deauth" for a in rec_args)
+        prof_parts = [a for a in rec_args if a.lower() not in ("auto", "deauth")]
         profile = " ".join(prof_parts).strip() if prof_parts else None
 
-        if not reconnect_wifi(profile=profile, auto_loop=auto_loop):
+        if not reconnect_wifi(profile=profile, auto_loop=auto_loop, enable_deauth=enable_deauth):
             sys.exit(1)
     elif getattr(args, "share", None) is not None:
         hotspot_name, hotspot_pass = args.share

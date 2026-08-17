@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import patch, MagicMock, call
 import argparse
 
-from cafe_chameleon.network.nmcli.reconnect import reconnect_wifi, perform_reconnect, monitor_and_auto_reconnect
+from cafe_chameleon.network.nmcli.reconnect import reconnect_wifi, perform_reconnect, monitor_and_auto_reconnect, soft_heal_connection
 from cafe_chameleon.modes.wifi.controller import run_wifi
 from cafe_chameleon.cli.parser import parse_arguments
 
@@ -27,7 +27,8 @@ class TestWifiReconnect(unittest.TestCase):
             "local_ip": "192.168.1.100",
             "cidr": "192.168.1.100/24",
             "broadcast": "192.168.1.255",
-            "gateway_ip": "192.168.1.1"
+            "gateway_ip": "192.168.1.1",
+            "gateway_mac": "00:aa:bb:cc:dd:ee"
         }
         mock_active_prof.return_value = "MyHotspot"
         mock_conn_bssid.return_value = "00:11:22:33:44:55"
@@ -45,20 +46,26 @@ class TestWifiReconnect(unittest.TestCase):
             netmask="24",
             broadcast="192.168.1.255",
             gateway="192.168.1.1",
+            gateway_mac="00:aa:bb:cc:dd:ee",
+            enable_deauth=False,
             timeout=5.0,
             max_retries=3
         )
 
+    @patch("cafe_chameleon.network.nmcli.reconnect.pin_gateway_neighbor")
+    @patch("cafe_chameleon.network.nmcli.reconnect.send_deauth")
     @patch("cafe_chameleon.network.nmcli.reconnect.get_connected_bssid")
     @patch("cafe_chameleon.network.nmcli.reconnect.wait_for_carrier")
     @patch("cafe_chameleon.network.nmcli.reconnect.send_gratuitous_arp")
     @patch("cafe_chameleon.network.nmcli.reconnect._run")
-    def test_perform_reconnect_success(
+    def test_perform_reconnect_success_with_deauth_and_pinning(
         self,
         mock_run,
         mock_garp,
         mock_wait_carrier,
-        mock_conn_bssid
+        mock_conn_bssid,
+        mock_send_deauth,
+        mock_pin
     ):
         mock_run.return_value = (0, "Connection successfully activated")
         mock_wait_carrier.return_value = True
@@ -73,10 +80,15 @@ class TestWifiReconnect(unittest.TestCase):
             netmask="24",
             broadcast="192.168.1.255",
             gateway="192.168.1.1",
+            gateway_mac="00:aa:bb:cc:dd:ee",
+            enable_deauth=True,
             timeout=5.0,
             max_retries=3
         )
         self.assertTrue(result)
+
+        # Verify defensive deauth called
+        mock_send_deauth.assert_called_once_with("aa:bb:cc:dd:ee:ff", "00:11:22:33:44:55", "wlan0")
 
         # Verify BSSID lock and cloned MAC modified
         mock_run.assert_any_call(["nmcli", "connection", "modify", "MyHotspot", "802-11-wireless.bssid", "00:11:22:33:44:55"], debug=False)
@@ -91,6 +103,276 @@ class TestWifiReconnect(unittest.TestCase):
         mock_run.assert_any_call(["ip", "route", "flush", "dev", "wlan0"], debug=False)
         mock_run.assert_any_call(["ip", "route", "replace", "default", "via", "192.168.1.1", "dev", "wlan0", "onlink"], debug=False)
         mock_garp.assert_called_once_with("wlan0", "192.168.1.100", "192.168.1.1")
+        mock_pin.assert_called_once_with("192.168.1.1", "00:aa:bb:cc:dd:ee", "wlan0")
+
+    @patch("cafe_chameleon.network.nmcli.reconnect.send_deauth")
+    @patch("cafe_chameleon.network.nmcli.reconnect.get_connected_bssid")
+    @patch("cafe_chameleon.network.nmcli.reconnect.wait_for_carrier")
+    @patch("cafe_chameleon.network.nmcli.reconnect._run")
+    def test_perform_reconnect_no_deauth_by_default(
+        self,
+        mock_run,
+        mock_wait_carrier,
+        mock_conn_bssid,
+        mock_send_deauth
+    ):
+        mock_run.return_value = (0, "Connection successfully activated")
+        mock_wait_carrier.return_value = True
+        mock_conn_bssid.return_value = "00:11:22:33:44:55"
+
+        result = perform_reconnect(
+            profile="MyHotspot",
+            interface="wlan0",
+            bssid="00:11:22:33:44:55",
+            mac="aa:bb:cc:dd:ee:ff",
+            local_ip=None,
+            netmask="24",
+            broadcast="255.255.255.255",
+            gateway="",
+            enable_deauth=False
+        )
+        self.assertTrue(result)
+        mock_send_deauth.assert_not_called()
+
+    @patch("cafe_chameleon.network.nmcli.reconnect.has_internet")
+    @patch("cafe_chameleon.network.nmcli.reconnect.wait_for_gateway_pong")
+    @patch("cafe_chameleon.network.nmcli.reconnect.pin_gateway_neighbor")
+    @patch("cafe_chameleon.network.nmcli.reconnect.send_gratuitous_arp")
+    @patch("cafe_chameleon.network.nmcli.reconnect._run")
+    def test_soft_heal_connection_success(
+        self,
+        mock_run,
+        mock_garp,
+        mock_pin,
+        mock_gw_pong,
+        mock_internet
+    ):
+        mock_run.return_value = (0, "")
+        mock_gw_pong.return_value = True
+        mock_internet.return_value = True
+
+        res = soft_heal_connection(
+            interface="wlan0",
+            local_ip="192.168.1.100",
+            netmask="24",
+            broadcast="192.168.1.255",
+            gateway="192.168.1.1",
+            gateway_mac="00:aa:bb:cc:dd:ee"
+        )
+        self.assertTrue(res)
+        mock_garp.assert_called_once_with("wlan0", "192.168.1.100", "192.168.1.1")
+        mock_pin.assert_called_once_with("192.168.1.1", "00:aa:bb:cc:dd:ee", "wlan0")
+        mock_gw_pong.assert_called_once_with(gateway_ip="192.168.1.1", interface="wlan0", timeout=1.5)
+        mock_internet.assert_called_once_with(timeout=1.0, check_speed=False, gateway_ip="192.168.1.1", interface="wlan0", ping_gateway=False)
+
+    @patch("cafe_chameleon.network.nmcli.reconnect.start_background_garp")
+    @patch("cafe_chameleon.network.nmcli.reconnect.soft_heal_connection")
+    @patch("cafe_chameleon.network.nmcli.reconnect.perform_reconnect")
+    @patch("cafe_chameleon.network.nmcli.reconnect.has_internet")
+    @patch("cafe_chameleon.network.nmcli.reconnect.get_connected_bssid")
+    @patch("cafe_chameleon.network.nmcli.reconnect.get_carrier_status")
+    @patch("time.sleep")
+    def test_monitor_and_auto_reconnect_hysteresis_and_soft_heal(
+        self,
+        mock_sleep,
+        mock_carrier,
+        mock_bssid,
+        mock_internet,
+        mock_perform,
+        mock_soft_heal,
+        mock_garp_thread
+    ):
+        mock_stop_event = MagicMock()
+        mock_garp_thread.return_value = mock_stop_event
+
+        # 1. Initial check ok (carrier=True, bssid matches)
+        # 2. Iteration 1: has_internet returns False (first transient drop -> consecutive=1, no reconnect)
+        # 3. Iteration 2: has_internet returns False (consecutive=2 -> triggers soft_heal_connection)
+        # 4. soft_heal_connection succeeds -> resets consecutive_failures, no perform_reconnect
+        # 5. Iteration 3: KeyboardInterrupt
+        mock_carrier.side_effect = [True, True, True, True]
+        mock_bssid.side_effect = ["00:11:22:33:44:55", "00:11:22:33:44:55", "00:11:22:33:44:55", "00:11:22:33:44:55"]
+        mock_internet.side_effect = [False, False]
+        mock_soft_heal.return_value = True
+        mock_sleep.side_effect = [None, None, KeyboardInterrupt]
+
+        res = monitor_and_auto_reconnect(
+            profile="MyHotspot",
+            interface="wlan0",
+            bssid="00:11:22:33:44:55",
+            mac="aa:bb:cc:dd:ee:ff",
+            local_ip="192.168.1.100",
+            netmask="24",
+            broadcast="192.168.1.255",
+            gateway="192.168.1.1",
+            timeout=5.0,
+            check_interval=1.0
+        )
+        self.assertTrue(res)
+        mock_soft_heal.assert_called_once()
+        mock_perform.assert_not_called()
+        mock_stop_event.set.assert_called_once()
+
+    @patch("cafe_chameleon.network.nmcli.reconnect.start_background_garp")
+    @patch("cafe_chameleon.network.nmcli.reconnect.soft_heal_connection")
+    @patch("cafe_chameleon.network.nmcli.reconnect.perform_reconnect")
+    @patch("cafe_chameleon.network.nmcli.reconnect.has_internet")
+    @patch("cafe_chameleon.network.nmcli.reconnect.get_connected_bssid")
+    @patch("cafe_chameleon.network.nmcli.reconnect.get_carrier_status")
+    @patch("time.sleep")
+    def test_monitor_and_auto_reconnect_escalates_to_hard_reconnect_on_soft_fail(
+        self,
+        mock_sleep,
+        mock_carrier,
+        mock_bssid,
+        mock_internet,
+        mock_perform,
+        mock_soft_heal,
+        mock_garp_thread
+    ):
+        mock_stop_event = MagicMock()
+        mock_garp_thread.return_value = mock_stop_event
+
+        # Iteration 1: transient drop (consecutive=1)
+        # Iteration 2: confirmed drop (consecutive=2) -> soft_heal fails -> calls perform_reconnect
+        mock_carrier.side_effect = [True, True, True, True]
+        mock_bssid.side_effect = ["00:11:22:33:44:55", "00:11:22:33:44:55", "00:11:22:33:44:55", "00:11:22:33:44:55"]
+        mock_internet.side_effect = [False, False]
+        mock_soft_heal.return_value = False
+        mock_perform.return_value = True
+        mock_sleep.side_effect = [None, None, KeyboardInterrupt]
+
+        res = monitor_and_auto_reconnect(
+            profile="MyHotspot",
+            interface="wlan0",
+            bssid="00:11:22:33:44:55",
+            mac="aa:bb:cc:dd:ee:ff",
+            local_ip="192.168.1.100",
+            netmask="24",
+            broadcast="192.168.1.255",
+            gateway="192.168.1.1",
+            enable_deauth=True,
+            timeout=5.0,
+            check_interval=1.0
+        )
+        self.assertTrue(res)
+        mock_soft_heal.assert_called_once()
+        mock_perform.assert_called_once_with(
+            profile="MyHotspot",
+            interface="wlan0",
+            bssid="00:11:22:33:44:55",
+            mac="aa:bb:cc:dd:ee:ff",
+            local_ip="192.168.1.100",
+            netmask="24",
+            broadcast="192.168.1.255",
+            gateway="192.168.1.1",
+            gateway_mac=None,
+            enable_deauth=True,
+            timeout=5.0,
+            max_retries=3
+        )
+
+    @patch("cafe_chameleon.network.nmcli.reconnect.start_background_garp")
+    @patch("cafe_chameleon.network.nmcli.reconnect.perform_reconnect")
+    @patch("cafe_chameleon.network.nmcli.reconnect.get_connected_bssid")
+    @patch("cafe_chameleon.network.nmcli.reconnect.get_carrier_status")
+    @patch("time.sleep")
+    def test_monitor_and_auto_reconnect_carrier_loss_immediate_hard_reconnect(
+        self,
+        mock_sleep,
+        mock_carrier,
+        mock_bssid,
+        mock_perform,
+        mock_garp_thread
+    ):
+        mock_stop_event = MagicMock()
+        mock_garp_thread.return_value = mock_stop_event
+
+        # Initial check passes (carrier=True, bssid matches).
+        # Loop iteration 1: carrier drops (carrier=False) -> immediate hard reconnect.
+        # Loop iteration 2: KeyboardInterrupt.
+        mock_carrier.side_effect = [True, False, True]
+        mock_bssid.side_effect = ["00:11:22:33:44:55", "00:11:22:33:44:55", "00:11:22:33:44:55"]
+        mock_perform.return_value = True
+        mock_sleep.side_effect = [None, KeyboardInterrupt]
+
+        res = monitor_and_auto_reconnect(
+            profile="MyHotspot",
+            interface="wlan0",
+            bssid="00:11:22:33:44:55",
+            mac="aa:bb:cc:dd:ee:ff",
+            local_ip="192.168.1.100",
+            netmask="24",
+            broadcast="192.168.1.255",
+            gateway="192.168.1.1",
+            timeout=5.0,
+            check_interval=1.0
+        )
+        self.assertTrue(res)
+        mock_perform.assert_called_once()
+
+    @patch("cafe_chameleon.modes.wifi.controller.reconnect_wifi")
+    def test_run_wifi_controller_reconnect_default(self, mock_reconnect):
+        mock_reconnect.return_value = True
+        args = argparse.Namespace(
+            status=False,
+            lock=None,
+            auto=None,
+            mac=None,
+            reset_mac=None,
+            release=None,
+            reconnect=[]
+        )
+        run_wifi(args)
+        mock_reconnect.assert_called_once_with(profile=None, auto_loop=False, enable_deauth=False)
+
+    @patch("cafe_chameleon.modes.wifi.controller.reconnect_wifi")
+    def test_run_wifi_controller_reconnect_auto(self, mock_reconnect):
+        mock_reconnect.return_value = True
+        args = argparse.Namespace(
+            status=False,
+            lock=None,
+            auto=None,
+            mac=None,
+            reset_mac=None,
+            release=None,
+            reconnect=["auto", "OfficeWiFi"]
+        )
+        run_wifi(args)
+        mock_reconnect.assert_called_once_with(profile="OfficeWiFi", auto_loop=True, enable_deauth=False)
+
+    @patch("cafe_chameleon.modes.wifi.controller.reconnect_wifi")
+    def test_run_wifi_controller_reconnect_deauth(self, mock_reconnect):
+        mock_reconnect.return_value = True
+        args = argparse.Namespace(
+            status=False,
+            lock=None,
+            auto=None,
+            mac=None,
+            reset_mac=None,
+            release=None,
+            reconnect=["deauth", "OfficeWiFi"]
+        )
+        run_wifi(args)
+        mock_reconnect.assert_called_once_with(profile="OfficeWiFi", auto_loop=True, enable_deauth=True)
+
+    @patch("sys.argv", ["main.py", "wifi", "--reconnect"])
+    def test_cli_parser_reconnect_flag(self):
+        args = parse_arguments()
+        self.assertEqual(args.command, "wifi")
+        self.assertEqual(args.reconnect, [])
+
+    @patch("sys.argv", ["main.py", "wifi", "-c", "auto"])
+    def test_cli_parser_short_reconnect_auto(self):
+        args = parse_arguments()
+        self.assertEqual(args.command, "wifi")
+        self.assertEqual(args.reconnect, ["auto"])
+
+    @patch("sys.argv", ["main.py", "wifi", "-c", "deauth"])
+    def test_cli_parser_short_reconnect_deauth(self):
+        args = parse_arguments()
+        self.assertEqual(args.command, "wifi")
+        self.assertEqual(args.reconnect, ["deauth"])
 
     @patch("cafe_chameleon.network.nmcli.reconnect.get_connected_bssid")
     @patch("cafe_chameleon.network.nmcli.reconnect.wait_for_carrier")
@@ -101,7 +383,6 @@ class TestWifiReconnect(unittest.TestCase):
         mock_wait_carrier,
         mock_conn_bssid
     ):
-        # First connection up fails with cache miss, second succeeds
         mock_run.side_effect = [
             (0, ""), # modify bssid
             (0, ""), # modify cloned-mac
@@ -127,86 +408,6 @@ class TestWifiReconnect(unittest.TestCase):
         )
         self.assertTrue(result)
         mock_run.assert_any_call(["nmcli", "device", "wifi", "rescan"], debug=False)
-
-    @patch("cafe_chameleon.network.nmcli.reconnect.perform_reconnect")
-    @patch("cafe_chameleon.network.nmcli.reconnect.has_internet")
-    @patch("cafe_chameleon.network.nmcli.reconnect.get_connected_bssid")
-    @patch("cafe_chameleon.network.nmcli.reconnect.get_carrier_status")
-    @patch("time.sleep")
-    def test_monitor_and_auto_reconnect_loop(
-        self,
-        mock_sleep,
-        mock_carrier,
-        mock_bssid,
-        mock_internet,
-        mock_perform
-    ):
-        # 1. Initial check ok
-        # 2. Loop iteration 1: carrier drops -> triggers perform_reconnect
-        # 3. Loop iteration 2: KeyboardInterrupt raises
-        mock_carrier.side_effect = [True, False, True]
-        mock_bssid.side_effect = ["00:11:22:33:44:55", "", "00:11:22:33:44:55"]
-        mock_internet.side_effect = [True, False]
-        mock_sleep.side_effect = [None, KeyboardInterrupt]
-        mock_perform.return_value = True
-
-        res = monitor_and_auto_reconnect(
-            profile="MyHotspot",
-            interface="wlan0",
-            bssid="00:11:22:33:44:55",
-            mac="aa:bb:cc:dd:ee:ff",
-            local_ip="192.168.1.100",
-            netmask="24",
-            broadcast="192.168.1.255",
-            gateway="192.168.1.1",
-            timeout=5.0,
-            check_interval=1.0
-        )
-        self.assertTrue(res)
-        self.assertEqual(mock_perform.call_count, 1)
-
-    @patch("cafe_chameleon.modes.wifi.controller.reconnect_wifi")
-    def test_run_wifi_controller_reconnect(self, mock_reconnect):
-        mock_reconnect.return_value = True
-        args = argparse.Namespace(
-            status=False,
-            lock=None,
-            auto=None,
-            mac=None,
-            reset_mac=None,
-            release=None,
-            reconnect=[]
-        )
-        run_wifi(args)
-        mock_reconnect.assert_called_once_with(profile=None, auto_loop=False)
-
-    @patch("cafe_chameleon.modes.wifi.controller.reconnect_wifi")
-    def test_run_wifi_controller_reconnect_auto(self, mock_reconnect):
-        mock_reconnect.return_value = True
-        args = argparse.Namespace(
-            status=False,
-            lock=None,
-            auto=None,
-            mac=None,
-            reset_mac=None,
-            release=None,
-            reconnect=["auto", "OfficeWiFi"]
-        )
-        run_wifi(args)
-        mock_reconnect.assert_called_once_with(profile="OfficeWiFi", auto_loop=True)
-
-    @patch("sys.argv", ["main.py", "wifi", "--reconnect"])
-    def test_cli_parser_reconnect_flag(self):
-        args = parse_arguments()
-        self.assertEqual(args.command, "wifi")
-        self.assertEqual(args.reconnect, [])
-
-    @patch("sys.argv", ["main.py", "wifi", "-c", "auto"])
-    def test_cli_parser_short_reconnect_auto(self):
-        args = parse_arguments()
-        self.assertEqual(args.command, "wifi")
-        self.assertEqual(args.reconnect, ["auto"])
-
 
     @patch("cafe_chameleon.network.nmcli.reconnect.get_connected_bssid")
     @patch("cafe_chameleon.network.nmcli.reconnect.wait_for_carrier")
@@ -281,3 +482,4 @@ class TestWifiReconnect(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
