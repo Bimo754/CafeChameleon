@@ -178,6 +178,38 @@ class AirClientsMap(dict):
             return []
         return [mac for mac in clients if self.is_client_active(mac)]
 
+    def is_confirmed_client(self, mac: str) -> bool:
+        """
+        Returns True if the client has confirmed association/data activity,
+        an assigned IP address, or is not pure unassociated LAA probe noise.
+        """
+        if not mac:
+            return False
+        meta = self.client_metadata.get(mac.lower())
+        if not meta or not isinstance(meta, dict):
+            return True
+        if meta.get("active") or meta.get("ip"):
+            return True
+        if meta.get("data_count", 0) >= 1:
+            return True
+        # If seen only in probe requests and has LAA randomized MAC without IP/Data, treat as unconfirmed probe noise
+        if meta.get("is_laa") and meta.get("probe_count", 0) > 0 and meta.get("data_count", 0) == 0:
+            return False
+        return True
+
+    def get_confirmed_clients_for_bssid(self, bssid: str) -> dict[str, str | None]:
+        """Returns dict of confirmed clients (mac -> ip) for a given BSSID."""
+        if not bssid:
+            return {}
+        bssid_lower = bssid.lower()
+        clients = self.get(bssid_lower, {})
+        if not isinstance(clients, dict):
+            return {}
+        return {
+            mac: ip for mac, ip in clients.items()
+            if self.is_confirmed_client(mac)
+        }
+
 
 def parse_clean_int(val) -> int | None:
     """Extracts integer value from string or number safely."""

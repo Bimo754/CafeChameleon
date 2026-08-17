@@ -76,6 +76,16 @@ def filter_valid_air_clients(
             for b in all_bssids_clean:
                 if len(b) >= 14 and pfx == b[:14]:
                     return False
+
+        if air_clients_map and hasattr(air_clients_map, "is_confirmed_client"):
+            if not air_clients_map.is_confirmed_client(m_clean):
+                return False
+        elif isinstance(air_clients_map, dict) and hasattr(air_clients_map, "client_metadata"):
+            meta = air_clients_map.client_metadata.get(m_clean)
+            if meta and isinstance(meta, dict):
+                if meta.get("is_laa") and meta.get("probe_count", 0) > 0 and meta.get("data_count", 0) == 0 and not meta.get("ip") and not meta.get("active"):
+                    return False
+
         return True
 
     filtered = {

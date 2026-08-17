@@ -4,6 +4,50 @@ cafe_chameleon.scanners.air.packet_parser - Scapy 802.11 packet inspection and c
 
 from cafe_chameleon.ui.console import log_air
 from cafe_chameleon.scanners.resolver.kernel_cache import is_valid_ipv4
+import re
+
+MAC_REGEX = re.compile(r"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$")
+
+
+def is_valid_client_mac(mac: str | None) -> bool:
+    """
+    Strictly validates that `mac` is a valid 6-byte unicast client MAC address.
+    Rejects multicast/broadcast, all-zeros, internal stimulator prefixes, and malformed strings.
+    """
+    if not mac or not isinstance(mac, str):
+        return False
+    mac_clean = mac.strip().lower()
+    if not MAC_REGEX.match(mac_clean):
+        return False
+    if (
+        mac_clean == "ff:ff:ff:ff:ff:ff"
+        or mac_clean == "00:00:00:00:00:00"
+        or mac_clean.startswith("01:00:5e")
+        or mac_clean.startswith("33:33")
+        or mac_clean.startswith("00:00:5e")
+        or mac_clean.startswith("02:00:00")
+    ):
+        return False
+    try:
+        first_byte = int(mac_clean.split(":")[0], 16)
+        # Bit 0 of octet 0 is I/G (Individual/Group): 1 = Multicast/Broadcast
+        if first_byte & 1:
+            return False
+    except Exception:
+        return False
+    return True
+
+
+def is_locally_administered_mac(mac: str | None) -> bool:
+    """Returns True if the MAC address has the U/L (Universal/Local) bit set (locally administered / randomized)."""
+    if not is_valid_client_mac(mac):
+        return False
+    try:
+        first_byte = int(mac.split(":")[0], 16)
+        # Bit 1 of octet 0 is U/L (Universal/Local): 1 = Locally Administered / Randomized
+        return bool(first_byte & 2)
+    except Exception:
+        return False
 
 
 def extract_packet_rssi(pkt) -> int | None:
@@ -47,13 +91,48 @@ def parse_air_packet(
     and using RadioTap RSSI as a signal-strength tiebreaker.
     """
     try:
-        from scapy.all import Dot11, IP, ARP
+        from scapy.all import Dot11, IP, ARP, RadioTap
     except ImportError:
-        return
+        try:
+            from scapy.all import Dot11, IP, ARP
+            RadioTap = None
+        except ImportError:
+            return
 
     try:
         if not pkt.haslayer(Dot11):
             return
+
+        # Check RadioTap layer for bad FCS or corrupted frame flags
+        rt = None
+        if RadioTap and pkt.haslayer(RadioTap):
+            rt = pkt.getlayer(RadioTap)
+        elif pkt.haslayer("RadioTap"):
+            rt = pkt.getlayer("RadioTap")
+        elif hasattr(pkt, "name") and "radiotap" in str(pkt.name).lower():
+            rt = pkt
+
+        if rt is not None:
+            flags = getattr(rt, "Flags", None)
+            if flags is None and hasattr(rt, "fields"):
+                flags = rt.fields.get("Flags")
+            if flags is not None:
+                try:
+                    is_bad_fcs = False
+                    if hasattr(flags, "value"):
+                        is_bad_fcs = bool(int(flags.value) & 0x40)
+                    elif isinstance(flags, (int, float)):
+                        is_bad_fcs = bool(int(flags) & 0x40)
+                    elif "bad" in str(flags).lower() and "fcs" in str(flags).lower():
+                        is_bad_fcs = True
+                    else:
+                        is_bad_fcs = bool(int(flags) & 0x40)
+
+                    if is_bad_fcs:
+                        return
+                except Exception:
+                    if "bad" in str(flags).lower() and "fcs" in str(flags).lower():
+                        return
 
         dot11 = pkt[Dot11]
         addr1 = str(dot11.addr1).lower() if dot11.addr1 else None
@@ -341,169 +420,165 @@ def parse_air_packet(
 
             if (
                 client_candidate != matched_bssid
+                and is_valid_client_mac(client_candidate)
                 and client_candidate not in ignore_macs
-                and not client_candidate.startswith("02:00:00")
+                and client_candidate not in target_bssids_set
             ):
-                is_invalid = False
-                # Filter multicast / broadcast / IPv6 / VRRP / stimulator prefixes
-                if (
-                    client_candidate.startswith("01:00:5e")
-                    or client_candidate.startswith("33:33")
-                    or client_candidate.startswith("00:00:5e")
-                    or client_candidate.startswith("02:00:00")
-                    or client_candidate == "ff:ff:ff:ff:ff:ff"
-                    or client_candidate == "00:00:00:00:00:00"
-                ):
-                    is_invalid = True
+                curr_rssi = extract_packet_rssi(pkt)
+                is_probe = bool(dot11.type == 0 and subtype == 4)
+                is_data_frame = bool(dot11.type == 2)
+                is_laa = is_locally_administered_mac(client_candidate)
 
-                # Check multicast / I/G bit on first octet
-                if not is_invalid:
+                # Determine if this frame is an active data transmission
+                is_data_carrying = False
+                if dot11.type == 2:
                     try:
-                        first_byte = int(client_candidate.split(":")[0], 16)
-                        if first_byte & 1:
-                            is_invalid = True
-                    except Exception:
-                        is_invalid = True
+                        sub_val = int(subtype) if subtype is not None else None
+                    except (ValueError, TypeError):
+                        sub_val = None
 
-                # Discard if client is another known AP BSSID
-                if not is_invalid and client_candidate in target_bssids_set:
-                    is_invalid = True
-
-                if not is_invalid:
-                    curr_rssi = extract_packet_rssi(pkt)
-
-                    # Determine if this frame is an active data transmission
-                    is_data_carrying = False
-                    if dot11.type == 2:
+                    if sub_val in (0, 1, 2, 3, 8, 9, 10, 11):
+                        is_data_carrying = True
+                    elif hasattr(dot11, "payload") and dot11.payload is not None:
                         try:
-                            sub_val = int(subtype) if subtype is not None else None
-                        except (ValueError, TypeError):
-                            sub_val = None
+                            p_bytes = bytes(dot11.payload)
+                            if len(p_bytes) > 0:
+                                is_data_carrying = True
+                        except Exception:
+                            pass
+                    elif sub_val is None:
+                        is_data_carrying = True
 
-                        if sub_val in (0, 1, 2, 3, 8, 9, 10, 11):
-                            is_data_carrying = True
-                        elif hasattr(dot11, "payload") and dot11.payload is not None:
-                            try:
-                                p_bytes = bytes(dot11.payload)
-                                if len(p_bytes) > 0:
-                                    is_data_carrying = True
-                            except Exception:
-                                pass
-                        elif sub_val is None:
-                            is_data_carrying = True
+                is_active_frame = (dot11.type == 2 and is_data_carrying) or bool(client_ip and (to_ds or from_ds or dot11.type == 2))
 
-                    is_active_frame = (dot11.type == 2 and is_data_carrying) or bool(client_ip and (to_ds or from_ds or dot11.type == 2))
+                # Ensure target BSSID bucket exists
+                if matched_bssid not in bssid_to_clients:
+                    bssid_to_clients[matched_bssid] = {}
 
-                    # Ensure target BSSID bucket exists
-                    if matched_bssid not in bssid_to_clients:
-                        bssid_to_clients[matched_bssid] = {}
+                # Locate any existing BSSID association for this client
+                old_bssid = None
+                for b_cand, c_dict in bssid_to_clients.items():
+                    if client_candidate in c_dict:
+                        old_bssid = b_cand
+                        break
 
-                    # Locate any existing BSSID association for this client
-                    old_bssid = None
-                    for b_cand, c_dict in bssid_to_clients.items():
-                        if client_candidate in c_dict:
-                            old_bssid = b_cand
-                            break
+                if old_bssid is None:
+                    # First time seeing this client station
+                    bssid_to_clients[matched_bssid][client_candidate] = client_ip
+                    if client_metadata is not None:
+                        client_metadata[client_candidate] = {
+                            "bssid": matched_bssid,
+                            "priority": frame_priority,
+                            "rssi": curr_rssi,
+                            "ip": client_ip,
+                            "active": is_active_frame,
+                            "data_count": 1 if (is_active_frame or is_data_frame) else 0,
+                            "probe_count": 1 if is_probe else 0,
+                            "mgmt_count": 1 if (dot11.type == 0 and not is_probe) else 0,
+                            "total_count": 1,
+                            "is_laa": is_laa,
+                        }
 
-                    if old_bssid is None:
-                        # First time seeing this client station
+                elif old_bssid == matched_bssid:
+                    # Client seen again on its currently bound BSSID
+                    existing_ip = bssid_to_clients[matched_bssid].get(client_candidate)
+                    if client_ip and not existing_ip:
                         bssid_to_clients[matched_bssid][client_candidate] = client_ip
+
+                    if client_metadata is not None:
+                        meta = client_metadata.setdefault(client_candidate, {
+                            "bssid": matched_bssid,
+                            "priority": frame_priority,
+                            "rssi": curr_rssi,
+                            "ip": client_ip or existing_ip,
+                            "active": False,
+                            "data_count": 0,
+                            "probe_count": 0,
+                            "mgmt_count": 0,
+                            "total_count": 0,
+                            "is_laa": is_laa,
+                        })
+                        meta["priority"] = max(meta.get("priority", 1), frame_priority)
+                        if is_active_frame:
+                            meta["active"] = True
+                        if curr_rssi is not None:
+                            prev_rssi = meta.get("rssi")
+                            meta["rssi"] = curr_rssi if prev_rssi is None else max(prev_rssi, curr_rssi)
+                        if client_ip:
+                            meta["ip"] = client_ip
+                        if is_active_frame or is_data_frame:
+                            meta["data_count"] = meta.get("data_count", 0) + 1
+                        if is_probe:
+                            meta["probe_count"] = meta.get("probe_count", 0) + 1
+                        if dot11.type == 0 and not is_probe:
+                            meta["mgmt_count"] = meta.get("mgmt_count", 0) + 1
+                        meta["total_count"] = meta.get("total_count", 0) + 1
+                        meta["is_laa"] = is_laa
+
+                else:
+                    # Client was previously bound to old_bssid, but now detected on matched_bssid
+                    old_prio = 1
+                    old_rssi = None
+                    old_data_count = 0
+                    old_active = False
+                    old_ip = bssid_to_clients[old_bssid].get(client_candidate)
+
+                    if client_metadata is not None and client_candidate in client_metadata:
+                        meta = client_metadata[client_candidate]
+                        old_prio = meta.get("priority", 1)
+                        old_rssi = meta.get("rssi")
+                        old_data_count = meta.get("data_count", 0)
+                        old_active = meta.get("active", False)
+                        if not old_ip:
+                            old_ip = meta.get("ip")
+
+                    # Re-association decision rule:
+                    # 1. New frame has strictly higher priority (e.g. Data Frame vs Probe Request)
+                    # 2. Equal priority, but new frame has significantly stronger RSSI (> 3 dBm) or old had no RSSI measurement
+                    # 3. Equal priority == 3 (Data), but new BSSID has data activity while old had none
+                    should_switch = False
+                    if frame_priority > old_prio:
+                        should_switch = True
+                    elif frame_priority == old_prio:
+                        if curr_rssi is not None and old_rssi is not None:
+                            if curr_rssi > (old_rssi + 3):
+                                should_switch = True
+                        elif curr_rssi is not None and old_rssi is None:
+                            should_switch = True
+                        elif frame_priority == 3 and old_data_count == 0:
+                            should_switch = True
+
+                    if should_switch:
+                        # Migrate client cleanly from old_bssid to matched_bssid
+                        bssid_to_clients[old_bssid].pop(client_candidate, None)
+                        best_ip = client_ip or old_ip
+                        bssid_to_clients[matched_bssid][client_candidate] = best_ip
+
+                        new_active = is_active_frame or old_active
                         if client_metadata is not None:
+                            old_data = meta.get("data_count", 0) if (client_metadata and client_candidate in client_metadata) else 0
+                            old_probe = meta.get("probe_count", 0) if (client_metadata and client_candidate in client_metadata) else 0
+                            old_mgmt = meta.get("mgmt_count", 0) if (client_metadata and client_candidate in client_metadata) else 0
+                            old_total = meta.get("total_count", 0) if (client_metadata and client_candidate in client_metadata) else 0
                             client_metadata[client_candidate] = {
                                 "bssid": matched_bssid,
                                 "priority": frame_priority,
-                                "rssi": curr_rssi,
-                                "ip": client_ip,
-                                "active": is_active_frame,
-                                "data_count": 1 if is_active_frame else (1 if frame_priority == 3 else 0),
-                                "total_count": 1
+                                "rssi": curr_rssi if curr_rssi is not None else old_rssi,
+                                "ip": best_ip,
+                                "active": new_active,
+                                "data_count": old_data + (1 if (is_active_frame or is_data_frame) else 0),
+                                "probe_count": old_probe + (1 if is_probe else 0),
+                                "mgmt_count": old_mgmt + (1 if (dot11.type == 0 and not is_probe) else 0),
+                                "total_count": old_total + 1,
+                                "is_laa": is_laa,
                             }
-
-                    elif old_bssid == matched_bssid:
-                        # Client seen again on its currently bound BSSID
-                        existing_ip = bssid_to_clients[matched_bssid].get(client_candidate)
-                        if client_ip and not existing_ip:
-                            bssid_to_clients[matched_bssid][client_candidate] = client_ip
-
-                        if client_metadata is not None:
-                            meta = client_metadata.setdefault(client_candidate, {
-                                "bssid": matched_bssid,
-                                "priority": frame_priority,
-                                "rssi": curr_rssi,
-                                "ip": client_ip or existing_ip,
-                                "active": False,
-                                "data_count": 0,
-                                "total_count": 0
-                            })
-                            meta["priority"] = max(meta.get("priority", 1), frame_priority)
-                            if is_active_frame:
-                                meta["active"] = True
-                            if curr_rssi is not None:
-                                prev_rssi = meta.get("rssi")
-                                meta["rssi"] = curr_rssi if prev_rssi is None else max(prev_rssi, curr_rssi)
-                            if client_ip:
-                                meta["ip"] = client_ip
-                            if is_active_frame or frame_priority == 3:
-                                meta["data_count"] = meta.get("data_count", 0) + 1
-                            meta["total_count"] = meta.get("total_count", 0) + 1
-
                     else:
-                        # Client was previously bound to old_bssid, but now detected on matched_bssid
-                        old_prio = 1
-                        old_rssi = None
-                        old_data_count = 0
-                        old_active = False
-                        old_ip = bssid_to_clients[old_bssid].get(client_candidate)
-
-                        if client_metadata is not None and client_candidate in client_metadata:
-                            meta = client_metadata[client_candidate]
-                            old_prio = meta.get("priority", 1)
-                            old_rssi = meta.get("rssi")
-                            old_data_count = meta.get("data_count", 0)
-                            old_active = meta.get("active", False)
-                            if not old_ip:
-                                old_ip = meta.get("ip")
-
-                        # Re-association decision rule:
-                        # 1. New frame has strictly higher priority (e.g. Data Frame vs Probe Request)
-                        # 2. Equal priority, but new frame has significantly stronger RSSI (> 3 dBm) or old had no RSSI measurement
-                        # 3. Equal priority == 3 (Data), but new BSSID has data activity while old had none
-                        should_switch = False
-                        if frame_priority > old_prio:
-                            should_switch = True
-                        elif frame_priority == old_prio:
-                            if curr_rssi is not None and old_rssi is not None:
-                                if curr_rssi > (old_rssi + 3):
-                                    should_switch = True
-                            elif curr_rssi is not None and old_rssi is None:
-                                should_switch = True
-                            elif frame_priority == 3 and old_data_count == 0:
-                                should_switch = True
-
-                        if should_switch:
-                            # Migrate client cleanly from old_bssid to matched_bssid
-                            bssid_to_clients[old_bssid].pop(client_candidate, None)
-                            best_ip = client_ip or old_ip
-                            bssid_to_clients[matched_bssid][client_candidate] = best_ip
-
-                            new_active = is_active_frame or old_active
-                            if client_metadata is not None:
-                                client_metadata[client_candidate] = {
-                                    "bssid": matched_bssid,
-                                    "priority": frame_priority,
-                                    "rssi": curr_rssi,
-                                    "ip": best_ip,
-                                    "active": new_active,
-                                    "data_count": (old_data_count + 1 if is_active_frame else (1 if frame_priority == 3 else 0)),
-                                    "total_count": (meta.get("total_count", 0) + 1) if (client_metadata and client_candidate in client_metadata) else 1
-                                }
-                        else:
-                            # Retain binding on old_bssid, but update IP if newly discovered
-                            if client_ip and not old_ip:
-                                bssid_to_clients[old_bssid][client_candidate] = client_ip
-                                if client_metadata is not None and client_candidate in client_metadata:
-                                    client_metadata[client_candidate]["ip"] = client_ip
-                            if is_active_frame and client_metadata is not None and client_candidate in client_metadata:
-                                client_metadata[client_candidate]["active"] = True
+                        # Retain binding on old_bssid, but update IP if newly discovered
+                        if client_ip and not old_ip:
+                            bssid_to_clients[old_bssid][client_candidate] = client_ip
+                            if client_metadata is not None and client_candidate in client_metadata:
+                                client_metadata[client_candidate]["ip"] = client_ip
+                        if is_active_frame and client_metadata is not None and client_candidate in client_metadata:
+                            client_metadata[client_candidate]["active"] = True
     except Exception:
         pass
