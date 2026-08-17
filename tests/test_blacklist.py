@@ -29,18 +29,6 @@ from cafe_chameleon.modes.aggressive.ranker import (
 from cafe_chameleon.scanners.orchestrator import deep_scan_subnet
 
 
-@pytest.fixture(autouse=True)
-def isolate_blacklist_file(tmp_path, monkeypatch):
-    """Isolate BLACKLIST_FILE to temporary path for all tests and ensure cleanup."""
-    temp_bl = str(tmp_path / "blacklist.txt")
-    monkeypatch.setattr("cafe_chameleon.config.BLACKLIST_FILE", temp_bl)
-    monkeypatch.setattr("cafe_chameleon.utils.blacklist.BLACKLIST_FILE", temp_bl)
-    yield temp_bl
-    if os.path.exists(temp_bl):
-        os.remove(temp_bl)
-    if os.path.exists("blacklist.txt"):
-        os.remove("blacklist.txt")
-
 
 class TestBlacklistCore:
     """Tests for core blacklist loading, saving, add, remove, and list functionality."""
@@ -120,6 +108,15 @@ class TestBlacklistCore:
             os.remove(fake_path)
         assert load_blacklist(fake_path) == set()
         assert is_blacklisted("00:11:22:33:44:55", filepath=fake_path) is False
+
+    def test_blacklist_file_preservation(self, tmp_path):
+        """Ensure that blacklist.txt file is preserved and not inadvertently wiped."""
+        persistent_file = str(tmp_path / "custom_blacklist.txt")
+        save_blacklist(["11:22:33:44:55:66"], filepath=persistent_file)
+        assert os.path.exists(persistent_file)
+        loaded = load_blacklist(persistent_file)
+        assert "11:22:33:44:55:66" in loaded
+        assert os.path.exists(persistent_file)
 
 
 class TestBlacklistCLIHandler:
