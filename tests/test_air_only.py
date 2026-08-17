@@ -26,16 +26,16 @@ class TestAirOnlyCLI(unittest.TestCase):
             self.assertEqual(args.air_only, 25)
             self.assertIsNone(getattr(args, "air", None))
 
-    def test_aggressive_without_air_flags(self):
-        with patch.object(sys, "argv", ["cafe-chameleon", "aggressive"]):
+    def test_air_only_flag_zero_duration(self):
+        with patch.object(sys, "argv", ["cafe-chameleon", "aggressive", "--air-only", "0"]):
             args = parse_arguments()
-            self.assertIsNone(getattr(args, "air_only", None))
+            self.assertEqual(args.air_only, 0)
             self.assertIsNone(getattr(args, "air", None))
 
-    def test_aggressive_with_regular_air_flag(self):
-        with patch.object(sys, "argv", ["cafe-chameleon", "aggressive", "--air", "15"]):
+    def test_air_flag_zero_duration(self):
+        with patch.object(sys, "argv", ["cafe-chameleon", "aggressive", "--air", "0"]):
             args = parse_arguments()
-            self.assertEqual(args.air, 15)
+            self.assertEqual(args.air, 0)
             self.assertIsNone(getattr(args, "air_only", None))
 
 
@@ -262,6 +262,79 @@ class TestAirOnlyExecution(unittest.TestCase):
 
         result = run_aggressive(args)
         self.assertTrue(result)
+        mock_run_scan_wrapper.assert_not_called()
+
+    @patch("cafe_chameleon.modes.aggressive.runner.auto_detect_network_params", return_value={"interface": "wlan0"})
+    @patch("cafe_chameleon.modes.aggressive.runner.get_active_profile", return_value="Cafe_WiFi")
+    @patch("cafe_chameleon.modes.aggressive.runner.get_ssid_for_profile", return_value="Cafe_SSID")
+    @patch("cafe_chameleon.modes.aggressive.runner.has_internet")
+    @patch("cafe_chameleon.modes.aggressive.runner.scan_bssids_for_ssid")
+    @patch("cafe_chameleon.modes.aggressive.runner.sniff_air_clients")
+    @patch("cafe_chameleon.modes.aggressive.runner.lock_bssid", return_value=True)
+    @patch("cafe_chameleon.modes.aggressive.runner.wait_for_carrier", return_value=True)
+    @patch("cafe_chameleon.modes.aggressive.runner.set_mac_address", return_value=True)
+    @patch("cafe_chameleon.modes.aggressive.runner.test_air_client_targets")
+    @patch("cafe_chameleon.modes.aggressive.runner.run_scan_wrapper")
+    def test_air_only_zero_continuous_loop_retries_and_succeeds(
+        self,
+        mock_run_scan_wrapper,
+        mock_test_air_targets,
+        mock_set_mac,
+        mock_wait_carrier,
+        mock_lock_bssid,
+        mock_sniff_air,
+        mock_scan_bssids,
+        mock_has_internet,
+        mock_get_ssid,
+        mock_get_profile,
+        mock_auto_params
+    ):
+        mock_scan_bssids.return_value = [
+            {"bssid": "11:22:33:44:55:66", "signal": "80", "chan": "1", "security": "OPEN"},
+        ]
+        # Cycle 1 returns client, fails hijack; Cycle 2 returns client, succeeds hijack
+        mock_sniff_air.side_effect = [
+            {"11:22:33:44:55:66": {"00:11:22:33:44:01": "10.0.0.10"}},
+            {"11:22:33:44:55:66": {"00:11:22:33:44:02": "10.0.0.20"}}
+        ]
+        mock_has_internet.return_value = False
+        mock_test_air_targets.side_effect = [
+            (False, False),  # Cycle 1: hijack unsuccessful
+            (True, True)     # Cycle 2: hijack succeeds
+        ]
+
+        args = argparse.Namespace(
+            profile="Cafe_WiFi",
+            interface="wlan0",
+            air=None,
+            air_only=0,
+            any_bssid=False,
+            any_ip=False,
+            force=False,
+            select_bssid=False,
+            clients=False,
+            threshold=10,
+            passive_only=False,
+            force_deauth=False
+        )
+
+        with patch("time.sleep", return_value=None):
+            result = run_aggressive(args)
+
+        self.assertTrue(result)
+        self.assertEqual(mock_sniff_air.call_count, 2)
+        mock_sniff_air.assert_called_with(
+            ["11:22:33:44:55:66"],
+            interface="wlan0",
+            duration=0,
+            target_channels=["1"],
+            bssids=mock_scan_bssids.return_value,
+            bssid_threshold=10,
+            ssid="Cafe_SSID",
+            enable_stimulation=True,
+            trigger_on_active=True,
+            active_trigger_duration=30
+        )
         mock_run_scan_wrapper.assert_not_called()
 
 

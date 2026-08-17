@@ -49,7 +49,12 @@ def format_air_panel(
             r_str = str(remaining).strip()
             rem_str = f"{r_str}s" if r_str.isdigit() else r_str
 
-        dur_info = f" | \033[1;37mDuration:\033[0m \033[1;36m{duration}s\033[0m" if (duration and duration > 0) else ""
+        if duration == 0:
+            dur_info = " | \033[1;37mDuration:\033[0m \033[1;36mIndefinite\033[0m"
+        elif duration and duration > 0:
+            dur_info = f" | \033[1;37mDuration:\033[0m \033[1;36m{duration}s\033[0m"
+        else:
+            dur_info = ""
 
         lines.append("\033[1;35m─── 802.11 AIR SNIFFER ─────────────────────────────────\033[0m")
         lines.append(f"\033[1;37mMode:\033[0m {mode_colored}{dur_info} | \033[1;37mRemaining:\033[0m \033[1;33m{rem_str}\033[0m")
@@ -84,36 +89,71 @@ def format_air_panel(
 
 class AirCountdownTimer:
     """Manages background countdown timer updating the air sniffer remaining seconds and rendering the live client table."""
-    def __init__(self, duration: int, interval: float = 1.0, client_metadata: dict | None = None, on_tick=None):
+    def __init__(
+        self,
+        duration: int,
+        interval: float = 1.0,
+        client_metadata: dict | None = None,
+        on_tick=None,
+        waiting_for_active: bool = False
+    ):
         self.duration = duration
         self.interval = interval
         self.client_metadata = client_metadata if client_metadata is not None else {}
         self.on_tick = on_tick
+        self.waiting_for_active = waiting_for_active
         self.stop_event = threading.Event()
+        self._lock = threading.Lock()
+        self._countdown_end = None
+        self._active_triggered_duration = None
         self._thread = None
 
+    def trigger_countdown(self, duration: int = 30) -> None:
+        """Dynamically starts a countdown timer (e.g. when an active target is first detected)."""
+        with self._lock:
+            self.waiting_for_active = False
+            self._active_triggered_duration = duration
+            self._countdown_end = time.time() + duration
+            set_air_status(mode="Monitor", remaining=f"{duration}s")
+            self._render_tick(duration)
+
     def start(self) -> None:
-        start_t = time.time()
-        end_t = start_t + self.duration
-        set_air_status(mode="Monitor", remaining=f"{self.duration}s")
-        self._render_tick(self.duration)
+        with self._lock:
+            if self.waiting_for_active:
+                set_air_status(mode="Monitor", remaining="Waiting for active...")
+                self._render_tick("Waiting for active...")
+            elif self.duration == 0:
+                set_air_status(mode="Monitor", remaining="Indefinite")
+                self._render_tick("Indefinite")
+            else:
+                self._countdown_end = time.time() + self.duration
+                set_air_status(mode="Monitor", remaining=f"{self.duration}s")
+                self._render_tick(self.duration)
 
         def timer_loop():
             while not self.stop_event.is_set():
                 self.stop_event.wait(self.interval)
                 if self.stop_event.is_set():
                     break
-                now = time.time()
-                remaining = max(0, int(round(end_t - now)))
-                set_air_status(mode="Monitor", remaining=f"{remaining}s")
-                self._render_tick(remaining)
-                if remaining <= 0:
-                    break
+                with self._lock:
+                    if self.waiting_for_active:
+                        set_air_status(mode="Monitor", remaining="Waiting for active...")
+                        self._render_tick("Waiting for active...")
+                    elif self._countdown_end is not None:
+                        now = time.time()
+                        remaining = max(0, int(round(self._countdown_end - now)))
+                        set_air_status(mode="Monitor", remaining=f"{remaining}s")
+                        self._render_tick(remaining)
+                        if remaining <= 0:
+                            break
+                    elif self.duration == 0:
+                        set_air_status(mode="Monitor", remaining="Indefinite")
+                        self._render_tick("Indefinite")
 
         self._thread = threading.Thread(target=timer_loop, daemon=True)
         self._thread.start()
 
-    def _render_tick(self, remaining: int) -> None:
+    def _render_tick(self, remaining: int | str) -> None:
         if self.on_tick:
             try:
                 self.on_tick(remaining)
@@ -121,11 +161,12 @@ class AirCountdownTimer:
                 pass
         else:
             is_xterm = bool(get_use_xterm() and XtermManager and XtermManager._instance and XtermManager._instance.enabled)
+            eff_dur = self._active_triggered_duration if self._active_triggered_duration is not None else self.duration
             panel = format_air_panel(
                 client_metadata=self.client_metadata,
                 mode="Monitor",
                 remaining=remaining,
-                duration=self.duration,
+                duration=eff_dur,
                 include_banner=not is_xterm
             )
             log_air(panel, clear=True)
@@ -327,12 +368,15 @@ def sniff_air_clients(
     bssid_threshold: int = DEFAULT_BSSID_THRESHOLD,
     auto_scale_duration: bool = False,
     ssid: str = "",
-    enable_stimulation: bool = True
+    enable_stimulation: bool = True,
+    trigger_on_active: bool = False,
+    active_trigger_duration: int = DEFAULT_AIR_DURATION
 ) -> dict:
     """
     Switches to monitor mode, sniffs 802.11 frames over-the-air for `duration` seconds,
     maps active client MAC and IP addresses to target BSSIDs, cleanly restores managed mode,
     and transmits targeted 802.11 stimulation packets to wake sleeping clients and prompt APs.
+    Supports duration=0 for indefinite monitoring, and trigger_on_active for dynamic 30s collection.
     """
     try:
         from scapy.all import sniff, Dot11, IP, ARP, BOOTP, DHCP
@@ -368,6 +412,9 @@ def sniff_air_clients(
 
     hopper = None
     client_metadata = {}
+    active_triggered_event = threading.Event()
+    countdown_deadline = [None]
+
     try:
         mon_iface = set_monitor_mode(interface)
 
@@ -397,7 +444,7 @@ def sniff_air_clients(
                 dwell_times = calculate_channel_dwell_times(hop_channels, channel_signals, channel_densities=channel_densities)
 
         effective_duration = duration
-        if auto_scale_duration and hop_channels:
+        if auto_scale_duration and hop_channels and duration > 0:
             scaled_dur = calculate_scaled_air_duration(base_duration=duration, channel_count=len(hop_channels))
             if scaled_dur > effective_duration:
                 effective_duration = scaled_dur
@@ -427,6 +474,22 @@ def sniff_air_clients(
                 DHCP=DHCP,
                 client_metadata=client_metadata
             )
+            if trigger_on_active and effective_duration == 0 and not active_triggered_event.is_set():
+                has_active = any(
+                    isinstance(meta, dict) and meta.get("active")
+                    for meta in client_metadata.values()
+                )
+                if has_active:
+                    active_triggered_event.set()
+                    countdown_deadline[0] = time.time() + active_trigger_duration
+                    timer.trigger_countdown(active_trigger_duration)
+                    log_air(f"\n\033[1;32m[+] Active target detected! Starting {active_trigger_duration}s collection window...\033[0m\n")
+
+        def stop_check(pkt):
+            if trigger_on_active and effective_duration == 0:
+                if active_triggered_event.is_set() and countdown_deadline[0] is not None:
+                    return time.time() >= countdown_deadline[0]
+            return False
 
         def on_channel_hop(ch: int):
             if stimulator:
@@ -438,12 +501,20 @@ def sniff_air_clients(
         timer = AirCountdownTimer(
             duration=effective_duration,
             interval=1.0,
-            client_metadata=client_metadata
+            client_metadata=client_metadata,
+            waiting_for_active=bool(effective_duration == 0 and trigger_on_active)
         )
         timer.start()
 
+        sniff_timeout = None if effective_duration == 0 else effective_duration
         try:
-            sniff(iface=mon_iface, timeout=effective_duration, prn=air_packet_callback, store=False)
+            sniff(
+                iface=mon_iface,
+                timeout=sniff_timeout,
+                prn=air_packet_callback,
+                stop_filter=stop_check if (trigger_on_active and effective_duration == 0) else None,
+                store=False
+            )
         finally:
             timer.stop()
     except (AirSkipInterrupt, KeyboardInterrupt):
@@ -461,7 +532,7 @@ def sniff_air_clients(
             client_metadata=client_metadata,
             mode="Managed",
             remaining="0s",
-            duration=effective_duration,
+            duration=active_trigger_duration if (trigger_on_active and active_triggered_event.is_set()) else effective_duration,
             include_banner=not is_xterm
         )
         log_air(final_panel, clear=True)
