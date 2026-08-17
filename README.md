@@ -61,6 +61,7 @@ CafeChameleon provides a structured testbed to evaluate these attack surfaces an
 * Fast adaptive host discovery utilizing Nmap Ping Sweeps (`-sn`) with Wi-Fi RTT timing constraints.
 * Subnet block expansion (`-w` / `--wide` flag for `/22` subnet testing).
 * Layer 2 session takeover validation and automated internet connectivity verification.
+* **Skip Gateway Ping (`--no-gateway`)**: Skips upstream gateway ICMP/ARP ping checks during impersonation.
 
 ### Aggressive Mode (`aggressive`)
 * **Multi-BSSID Discovery**: Enumeration and structured ranking of all Access Points advertising the target ESSID.
@@ -68,6 +69,7 @@ CafeChameleon provides a structured testbed to evaluate these attack surfaces an
 * **Client-Focused Targeting (`-c` / `--clients`)**: Prioritizes BSSIDs with confirmed associated client stations regardless of raw RSSI.
 * **Global Client Pooling (`--any-bssid`)**: Decouples discovered clients from individual APs, pooling all air clients across all BSSIDs to test against the strongest signal APs.
 * **Fast Impersonation (`--any-ip`)**: Connects directly with local subnet IP, skipping multi-stage IP resolution probes and DHCP queries for instant MAC impersonation testing.
+* **Skip Gateway Ping (`--no-gateway`)**: Skips upstream gateway ICMP/ARP ping checks during impersonation.
 * **Interactive & Range Selection (`-s` / `--select-bssid`)**: Allows manual targeting of specific Access Points via interactive prompts or numeric range lists.
 * **Security-Aware Deauth Protection**: Inspects AP encryption status; skips 802.11 deauthentication on open networks unless explicitly overridden with `--force-deauth`.
 * **802.11 Monitor Mode Telemetry (`--air` / `--air-only`)**: Captures real-time client association frames, signal metrics, and probe requests. Use `--air-only` to skip subnet scanning across BSSIDs and test over-the-air discovered clients exclusively.

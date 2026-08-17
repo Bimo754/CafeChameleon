@@ -30,7 +30,8 @@ def hijack(
     bssid: str | None = None,
     channel: int | None = None,
     security: str | None = None,
-    force_deauth: bool = False
+    force_deauth: bool = False,
+    no_gateway: bool = False
 ) -> bool:
     """
     High-reliability network connection procedure with streamlined status reporting.
@@ -64,7 +65,6 @@ def hijack(
             rc_ip, ip_err = _run(f"ip -4 addr add {ip}/{netmask} broadcast {broadcast} dev {interface}")
 
             try:
-                _run(f"ip route flush dev {interface}")
                 if gateway:
                     rc_rt, rt_err = _run(f"ip route replace default via {gateway} dev {interface} onlink")
             except Exception as e:
@@ -74,7 +74,6 @@ def hijack(
             if gateway:
                 log_hijack("[*] Broadcasting gratuitous ARP packets to update ARP caches...")
                 send_gratuitous_arp(interface, ip, gateway)
-                garp_stop_event = start_background_garp(interface, ip, gateway)
 
             try:
                 start_time = time.time()
@@ -106,14 +105,20 @@ def hijack(
                 if not verified:
                     trace(f"[-] Interface verify failed ({attempt}/{max_retries}) [MAC:{last_mac_ok} IP:{last_ip_ok} LINK:{last_conn_ok}]")
                 else:
-                    gw_target = gateway or "default"
-                    log_hijack(f"[*] Pinging gateway ({gw_target}) to confirm network connectivity...")
-                    gw_pong = wait_for_gateway_pong(gateway_ip=gateway, interface=interface, timeout=3.0)
-                    if not gw_pong:
-                        log_hijack("\033[91m[-] Gateway unreachable (No ping response)\033[0m")
-                        return False
+                    if not no_gateway:
+                        gw_target = gateway or "default"
+                        log_hijack(f"[*] Pinging gateway ({gw_target}) to confirm network connectivity...")
+                        gw_pong = wait_for_gateway_pong(gateway_ip=gateway, interface=interface, timeout=3.5)
+                        if not gw_pong:
+                            log_hijack("\033[91m[-] Gateway unreachable (No ping response)\033[0m")
+                            return False
+                        log_hijack("[*] Gateway pong received -> Verifying internet connectivity...")
+                    else:
+                        log_hijack("[*] Gateway check skipped (--no-gateway) -> Verifying internet connectivity...")
 
-                    log_hijack("[*] Gateway pong received -> Verifying internet connectivity...")
+                    if gateway:
+                        garp_stop_event = start_background_garp(interface, ip, gateway)
+
                     has_base = has_internet(timeout=1.0, check_speed=False, gateway_ip=gateway, interface=interface, ping_gateway=False)
                     if not has_base:
                         log_hijack("\033[91m[-] Target unreachable (DNS/Internet failed)\033[0m")

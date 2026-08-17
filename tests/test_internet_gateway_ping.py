@@ -8,10 +8,12 @@ from unittest.mock import patch, mock_open, MagicMock
 from cafe_chameleon.network.internet.gateway import (
     get_default_gateway_ip,
     ping_gateway_once,
+    arp_ping_gateway_once,
     wait_for_gateway_pong
 )
 from cafe_chameleon.network.internet.checker import has_internet
 from cafe_chameleon.network.hijack.impersonate import hijack
+from cafe_chameleon.cli.parser import parse_arguments
 
 
 class TestInternetGatewayPing(unittest.TestCase):
@@ -65,6 +67,28 @@ class TestInternetGatewayPing(unittest.TestCase):
         self.assertFalse(ping_gateway_once("invalid_ip"))
         self.assertFalse(ping_gateway_once(None))
 
+    @patch("cafe_chameleon.network.internet.gateway._run")
+    def test_arp_ping_gateway_once_success(self, mock_run):
+        mock_run.return_value = (0, "1 packets received")
+        res = arp_ping_gateway_once("10.55.12.1", interface="wlan0")
+        self.assertTrue(res)
+        mock_run.assert_called_once_with(["arping", "-c", "1", "-w", "1", "-I", "wlan0", "10.55.12.1"], debug=False, timeout=1.5)
+
+    @patch("cafe_chameleon.network.internet.gateway._run")
+    def test_arp_ping_gateway_once_kernel_cache_fallback(self, mock_run):
+        mock_run.return_value = (1, "")
+        sample_arp_data = (
+            "IP address       HW type     Flags       HW address            Mask     Device\n"
+            "10.55.12.1       0x1         0x2         aa:bb:cc:dd:ee:ff     *        wlan0\n"
+        )
+        with patch("builtins.open", mock_open(read_data=sample_arp_data)):
+            res = arp_ping_gateway_once("10.55.12.1", interface="wlan0")
+            self.assertTrue(res)
+
+    def test_arp_ping_gateway_once_invalid_ip(self):
+        self.assertFalse(arp_ping_gateway_once(""))
+        self.assertFalse(arp_ping_gateway_once(None))
+
     @patch("cafe_chameleon.network.internet.gateway.ping_gateway_once")
     def test_wait_for_gateway_pong_immediate(self, mock_ping):
         mock_ping.return_value = True
@@ -81,9 +105,18 @@ class TestInternetGatewayPing(unittest.TestCase):
         self.assertTrue(res)
         self.assertEqual(mock_ping.call_count, 3)
 
+    @patch("cafe_chameleon.network.internet.gateway.arp_ping_gateway_once", return_value=True)
     @patch("cafe_chameleon.network.internet.gateway.ping_gateway_once", return_value=False)
     @patch("time.sleep")
-    def test_wait_for_gateway_pong_timeout(self, mock_sleep, mock_ping):
+    def test_wait_for_gateway_pong_arp_fallback(self, mock_sleep, mock_ping, mock_arp):
+        res = wait_for_gateway_pong("10.55.12.1", timeout=0.05, poll_interval=0.02, allow_arp_fallback=True)
+        self.assertTrue(res)
+        mock_arp.assert_called_once_with("10.55.12.1", interface=None, timeout=1.0)
+
+    @patch("cafe_chameleon.network.internet.gateway.arp_ping_gateway_once", return_value=False)
+    @patch("cafe_chameleon.network.internet.gateway.ping_gateway_once", return_value=False)
+    @patch("time.sleep")
+    def test_wait_for_gateway_pong_timeout(self, mock_sleep, mock_ping, mock_arp):
         res = wait_for_gateway_pong("10.55.12.1", timeout=0.05, poll_interval=0.02)
         self.assertFalse(res)
 
@@ -158,11 +191,60 @@ class TestInternetGatewayPing(unittest.TestCase):
             )
 
         self.assertTrue(res)
-        mock_gw_pong.assert_called_once_with(gateway_ip="10.0.0.1", interface="wlan0", timeout=3.0)
+        mock_gw_pong.assert_called_once_with(gateway_ip="10.0.0.1", interface="wlan0", timeout=3.5)
         mock_internet.assert_called_once_with(
             timeout=1.0, check_speed=False, gateway_ip="10.0.0.1", interface="wlan0", ping_gateway=False
         )
 
+    @patch("cafe_chameleon.network.hijack.impersonate.send_deauth")
+    @patch("cafe_chameleon.network.hijack.impersonate.set_mac_address")
+    @patch("cafe_chameleon.network.hijack.impersonate.wait_for_carrier")
+    @patch("cafe_chameleon.network.hijack.impersonate.wait_for_gateway_pong")
+    @patch("cafe_chameleon.network.hijack.impersonate.has_internet")
+    @patch("cafe_chameleon.network.hijack.impersonate.test_internet_speed")
+    @patch("cafe_chameleon.network.hijack.impersonate._run")
+    def test_hijack_no_gateway_skips_pong(
+        self,
+        mock_run,
+        mock_speed,
+        mock_internet,
+        mock_gw_pong,
+        mock_carrier,
+        mock_mac,
+        mock_deauth
+    ):
+        mock_deauth.return_value = True
+        mock_mac.return_value = True
+        mock_carrier.return_value = True
+        mock_run.return_value = (0, "inet 10.0.0.5/24")
+        mock_internet.return_value = True
+        mock_speed.return_value = (True, 100.0)
+
+        with patch("builtins.open", mock_open(read_data="00:11:22:33:44:55")):
+            res = hijack(
+                "wlan0", "10.0.0.5", "00:11:22:33:44:55", "24", "10.0.0.255", "10.0.0.1",
+                profile="HomeWiFi", bssid="aa:bb:cc:dd:ee:ff", no_gateway=True
+            )
+
+        self.assertTrue(res)
+        mock_gw_pong.assert_not_called()
+        mock_internet.assert_called_once_with(
+            timeout=1.0, check_speed=False, gateway_ip="10.0.0.1", interface="wlan0", ping_gateway=False
+        )
+
+    def test_cli_parser_simple_no_gateway(self):
+        args = parse_arguments(["simple", "--no-gateway"])
+        self.assertTrue(args.no_gateway)
+
+    def test_cli_parser_aggressive_no_gateway(self):
+        args = parse_arguments(["aggressive", "--no-gateway"])
+        self.assertTrue(args.no_gateway)
+
+    def test_cli_parser_default_no_gateway_false(self):
+        args = parse_arguments(["simple"])
+        self.assertFalse(getattr(args, "no_gateway", False))
+
 
 if __name__ == "__main__":
     unittest.main()
+

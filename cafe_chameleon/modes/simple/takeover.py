@@ -27,6 +27,7 @@ def test_discovered_hosts(unique_hosts: list[dict], interface: str, gw_ip: str, 
     log_main("[*] Testing discovered hosts for internet access...")
 
     force_deauth = getattr(args, "force_deauth", False)
+    no_gateway = getattr(args, "no_gateway", False)
     active_sec = getattr(args, "security", None) or get_active_security(profile=profile, interface=interface)
     blacklist = load_blacklist()
 
@@ -42,7 +43,8 @@ def test_discovered_hosts(unique_hosts: list[dict], interface: str, gw_ip: str, 
                 set_hijack_status(ip=host['ip'], mac=host['mac'], technique="Simple Impersonation Sweep", clear_section2=True)
                 hijack_success = hijack(
                     interface, host['ip'], host['mac'], netmask, broadcast, gw_ip,
-                    profile=profile, bssid=None, security=active_sec, force_deauth=force_deauth
+                    profile=profile, bssid=None, security=active_sec, force_deauth=force_deauth,
+                    no_gateway=no_gateway
                 )
                 if hijack_success:
                     log_scan("[+] SUCCESS! Internet access established!")

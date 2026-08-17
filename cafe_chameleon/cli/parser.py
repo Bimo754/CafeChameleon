@@ -116,6 +116,7 @@ def parse_arguments(args=None):
     s_opts.add_argument("-m", "--original-mac", action="store_true", dest="original_mac", help="Use hardware MAC (do not randomize)")
     s_opts.add_argument("--force", action="store_true", help="Force scan even if internet is active")
     s_opts.add_argument("--force-deauth", action="store_true", dest="force_deauth", help="Force 802.11 deauth even on open networks")
+    s_opts.add_argument("--no-gateway", action="store_true", dest="no_gateway", help="Skip gateway ping checks during host impersonation")
     s_opts.add_argument("--no-xterm", action="store_true", help="Disable multi-window UI")
     simple_p.set_defaults(func=run_simple)
 
@@ -145,6 +146,7 @@ def parse_arguments(args=None):
     a_opts.add_argument("-m", "--original-mac", action="store_true", dest="original_mac", help="Use hardware MAC (do not randomize)")
     a_opts.add_argument("--force", action="store_true", help="Force scan even if internet is active")
     a_opts.add_argument("--force-deauth", action="store_true", dest="force_deauth", help="Force 802.11 deauth even on open networks")
+    a_opts.add_argument("--no-gateway", action="store_true", dest="no_gateway", help="Skip gateway ping checks during host impersonation")
     a_opts.add_argument("--share", nargs=2, metavar=("NAME", "PASSWORD"), dest="share", help="Automatically share Wi-Fi hotspot upon successful session hijack")
     a_opts.add_argument("--no-xterm", action="store_true", help="Disable multi-window UI")
     aggressive_p.set_defaults(func=run_aggressive)

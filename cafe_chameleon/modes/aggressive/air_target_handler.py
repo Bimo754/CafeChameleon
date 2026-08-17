@@ -123,6 +123,7 @@ def test_air_client_targets(
     set_restore_params(interface, local_mac, ipmask, broadcast, gw_ip, profile=profile)
 
     force_deauth = getattr(args, "force_deauth", False)
+    no_gateway = getattr(args, "no_gateway", False)
     blacklist = load_blacklist()
 
     for client_mac, client_ip in ordered_clients.items():
@@ -180,7 +181,7 @@ def test_air_client_targets(
             hijack_success = hijack(
                 interface, target_ip, client_mac, netmask, broadcast, gw_ip,
                 max_retries=2, profile=profile, bssid=target_bssid, channel=chan,
-                security=security, force_deauth=force_deauth
+                security=security, force_deauth=force_deauth, no_gateway=no_gateway
             )
             if hijack_success:
                 active_succ = " [ACTIVE SESSION]" if is_active else ""

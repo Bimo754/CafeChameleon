@@ -66,9 +66,9 @@ def get_default_gateway_ip(interface: str | None = None) -> str | None:
     return None
 
 
-def ping_gateway_once(gateway_ip: str, interface: str | None = None, timeout: float = 0.25) -> bool:
+def ping_gateway_once(gateway_ip: str, interface: str | None = None, timeout: float = 1.0) -> bool:
     """
-    Sends a single ICMP echo request to the gateway with numeric output and short timeout.
+    Sends a single ICMP echo request to the gateway with numeric output.
     Returns True if an ICMP Echo Reply (pong) is received.
     """
     if not gateway_ip or not _is_valid_ip(gateway_ip):
@@ -84,17 +84,54 @@ def ping_gateway_once(gateway_ip: str, interface: str | None = None, timeout: fl
     return rc == 0
 
 
+def arp_ping_gateway_once(gateway_ip: str, interface: str | None = None, timeout: float = 1.0) -> bool:
+    """
+    Fallback Layer 2 ARP probe to detect if the gateway responds to ARP requests,
+    guarding against gateways that actively drop ICMP Echo Requests.
+    """
+    if not gateway_ip or not _is_valid_ip(gateway_ip):
+        return False
+
+    eff_timeout = max(0.5, timeout)
+    cmd = ["arping", "-c", "1", "-w", str(int(eff_timeout))]
+    if interface:
+        cmd.extend(["-I", interface])
+    cmd.append(gateway_ip)
+
+    rc, _ = _run(cmd, debug=False, timeout=eff_timeout + 0.5)
+    if rc == 0:
+        return True
+
+    # Also check /proc/net/arp / kernel neighbor table
+    try:
+        with open("/proc/net/arp", "r") as f:
+            for line in f.readlines()[1:]:
+                parts = line.strip().split()
+                if len(parts) >= 4 and parts[0] == gateway_ip:
+                    if interface and parts[5] != interface:
+                        continue
+                    mac = parts[3].lower()
+                    if mac and mac != "00:00:00:00:00:00" and not mac.startswith("00:00:00"):
+                        return True
+    except Exception:
+        pass
+
+    return False
+
+
 def wait_for_gateway_pong(
     gateway_ip: str | None = None,
     interface: str | None = None,
-    timeout: float = 3.0,
-    poll_interval: float = 0.05
+    timeout: float = 3.5,
+    poll_interval: float = 0.05,
+    allow_arp_fallback: bool = True
 ) -> bool:
     """
     Repeatedly pings the gateway in a fast responsive loop until the first pong is received.
     The exact millisecond a pong is received (confirming bidirectional Layer 2 / Layer 3 connectivity),
     this function returns True immediately.
-    If no pong is received within the timeout window, returns False.
+    If no pong is received within the timeout window, tests ARP fallback if enabled.
+    If both fail, returns False.
     """
     resolved_ip = gateway_ip or get_default_gateway_ip(interface)
     if not resolved_ip:
@@ -106,7 +143,7 @@ def wait_for_gateway_pong(
 
     while time.time() - start_time < timeout:
         remaining = timeout - (time.time() - start_time)
-        probe_timeout = min(0.25, max(0.05, remaining))
+        probe_timeout = min(1.0, max(0.2, remaining))
 
         if ping_gateway_once(resolved_ip, interface=interface, timeout=probe_timeout):
             elapsed_ms = (time.time() - start_time) * 1000
@@ -114,6 +151,12 @@ def wait_for_gateway_pong(
             return True
 
         time.sleep(poll_interval)
+
+    if allow_arp_fallback:
+        trace(f"[FEATURE] Gateway {resolved_ip} ICMP ping timed out; trying Layer 2 ARP probe fallback...")
+        if arp_ping_gateway_once(resolved_ip, interface=interface, timeout=1.0):
+            trace(f"[FEATURE] Gateway {resolved_ip} answered L2 ARP probe (Layer 2 connectivity confirmed)")
+            return True
 
     trace(f"[-] Gateway {resolved_ip} ping timed out after {timeout}s (no pong received)")
     return False
