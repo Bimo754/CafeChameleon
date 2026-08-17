@@ -159,6 +159,9 @@ class TestInternetGatewayPing(unittest.TestCase):
         self.assertFalse(result)
         mock_probe.assert_not_called()
 
+    @patch("cafe_chameleon.network.hijack.impersonate.start_background_garp")
+    @patch("cafe_chameleon.network.hijack.impersonate.send_gratuitous_arp")
+    @patch("cafe_chameleon.network.hijack.impersonate.get_carrier_status", return_value=True)
     @patch("cafe_chameleon.network.hijack.impersonate.send_deauth")
     @patch("cafe_chameleon.network.hijack.impersonate.set_mac_address")
     @patch("cafe_chameleon.network.hijack.impersonate.wait_for_carrier")
@@ -174,7 +177,10 @@ class TestInternetGatewayPing(unittest.TestCase):
         mock_gw_pong,
         mock_carrier,
         mock_mac,
-        mock_deauth
+        mock_deauth,
+        mock_get_carrier,
+        mock_garp,
+        mock_bg_garp
     ):
         mock_deauth.return_value = True
         mock_mac.return_value = True
@@ -196,6 +202,9 @@ class TestInternetGatewayPing(unittest.TestCase):
             timeout=1.0, check_speed=False, gateway_ip="10.0.0.1", interface="wlan0", ping_gateway=False
         )
 
+    @patch("cafe_chameleon.network.hijack.impersonate.start_background_garp")
+    @patch("cafe_chameleon.network.hijack.impersonate.send_gratuitous_arp")
+    @patch("cafe_chameleon.network.hijack.impersonate.get_carrier_status", return_value=True)
     @patch("cafe_chameleon.network.hijack.impersonate.send_deauth")
     @patch("cafe_chameleon.network.hijack.impersonate.set_mac_address")
     @patch("cafe_chameleon.network.hijack.impersonate.wait_for_carrier")
@@ -211,7 +220,10 @@ class TestInternetGatewayPing(unittest.TestCase):
         mock_gw_pong,
         mock_carrier,
         mock_mac,
-        mock_deauth
+        mock_deauth,
+        mock_get_carrier,
+        mock_garp,
+        mock_bg_garp
     ):
         mock_deauth.return_value = True
         mock_mac.return_value = True

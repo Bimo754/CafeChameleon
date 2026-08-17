@@ -45,15 +45,22 @@ def set_monitor_mode(interface: str = "wlan0") -> str:
     """
     set_air_mode("Monitor")
 
+    # Unmanage in NetworkManager and clear DHCP leases before monitor switch
+    _run(["nmcli", "device", "disconnect", interface], debug=False)
+    _run(["nmcli", "device", "set", interface, "managed", "no"], debug=False)
+    _run(["pkill", "-9", "-f", f"dhclient.*{interface}"], debug=False)
+    _run(["ip", "link", "set", "dev", interface, "down"], debug=False)
+
     if shutil.which("airmon-ng"):
         _run(["airmon-ng", "check", "kill"], debug=False)
         _run(["airmon-ng", "start", interface], debug=False)
     else:
-        _run(["ip", "link", "set", "dev", interface, "down"], debug=False)
         _run(["iw", "dev", interface, "set", "type", "monitor"], debug=False)
         _run(["ip", "link", "set", "dev", interface, "up"], debug=False)
 
     mon_iface = get_monitor_interface(interface)
+    _run(["ip", "link", "set", "dev", mon_iface, "up"], debug=False)
+    time.sleep(0.3)
     return mon_iface
 
 

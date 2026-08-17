@@ -87,6 +87,14 @@ def auto_detect_network_params(target_iface: str | None = None) -> NetworkParams
         if brd_match:
             params.broadcast = brd_match.group(1)
 
+    if not params.broadcast and params.cidr:
+        try:
+            import ipaddress
+            net = ipaddress.IPv4Network(params.cidr, strict=False)
+            params.broadcast = str(net.broadcast_address)
+        except Exception:
+            pass
+
     # 3. Local MAC
     rc, mac_out = _run(["ip", "-0", "addr", "show", "dev", params.interface])
     if mac_out:

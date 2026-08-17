@@ -51,7 +51,8 @@ def filter_valid_air_clients(
     tried_macs: set,
     auto_params: dict,
     bssids: list,
-    air_clients_map: dict | None = None
+    air_clients_map: dict | None = None,
+    active_only: bool = False
 ) -> dict:
     gw_mac_clean = (auto_params.get("gateway_mac") or "").lower()
     local_mac_clean = (auto_params.get("local_mac") or "").lower()
@@ -62,6 +63,8 @@ def filter_valid_air_clients(
         if m_clean in tried_macs or m_clean in all_bssids_clean or m_clean == gw_mac_clean or m_clean == local_mac_clean:
             return False
         if is_blacklisted(m_clean, blacklist):
+            return False
+        if active_only and not is_client_active(m_clean, air_clients_map):
             return False
         if m_clean.startswith("01:00:5e") or m_clean.startswith("33:33") or m_clean.startswith("00:00:5e") or m_clean.startswith("02:00:00"):
             return False
@@ -126,7 +129,14 @@ def test_air_client_targets(
     auto_ip = auto_params.get("local_ip") or "10.68.193.222"
     gw_ip = auto_params.get("gateway_ip", "")
     netmask = auto_params.get("cidr", "").split("/")[1] if auto_params.get("cidr") and "/" in auto_params.get("cidr") else "21"
-    broadcast = auto_params.get("broadcast", "")
+    broadcast = auto_params.get("broadcast") or ""
+    if not broadcast or str(broadcast).strip().lower() in ("none", "", "null"):
+        try:
+            import ipaddress
+            net = ipaddress.IPv4Network(f"{auto_ip}/{netmask}", strict=False)
+            broadcast = str(net.broadcast_address)
+        except Exception:
+            broadcast = "+"
     local_mac = auto_params.get("local_mac", "")
     ipmask = auto_params.get("cidr", f"{auto_ip}/{netmask}")
 

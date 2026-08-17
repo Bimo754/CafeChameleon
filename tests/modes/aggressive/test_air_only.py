@@ -9,6 +9,7 @@ from unittest.mock import patch, MagicMock
 
 from cafe_chameleon.cli.parser import parse_arguments
 from cafe_chameleon.modes.aggressive.runner import run_aggressive
+from cafe_chameleon.scanners.air.sniffer import AirClientsMap
 
 
 class TestAirOnlyCLI(unittest.TestCase):
@@ -90,6 +91,7 @@ class TestAirOnlyXtermWindows(unittest.TestCase):
 class TestAirOnlyExecution(unittest.TestCase):
     """Tests aggressive execution behavior with --air-only flag."""
 
+    @patch("cafe_chameleon.modes.aggressive.runner.is_monitor_mode_active", return_value=False)
     @patch("cafe_chameleon.modes.aggressive.runner.auto_detect_network_params", return_value={"interface": "wlan0"})
     @patch("cafe_chameleon.modes.aggressive.runner.get_active_profile", return_value="Cafe_WiFi")
     @patch("cafe_chameleon.modes.aggressive.runner.get_ssid_for_profile", return_value="Cafe_SSID")
@@ -113,7 +115,8 @@ class TestAirOnlyExecution(unittest.TestCase):
         mock_has_internet,
         mock_get_ssid,
         mock_get_profile,
-        mock_auto_params
+        mock_auto_params,
+        mock_is_mon
     ):
         mock_scan_bssids.return_value = [
             {"bssid": "11:22:33:44:55:66", "signal": "80", "chan": "1", "security": "OPEN"},
@@ -157,6 +160,7 @@ class TestAirOnlyExecution(unittest.TestCase):
         # Both BSSIDs should have been locked and tried
         self.assertEqual(mock_lock_bssid.call_count, 2)
 
+    @patch("cafe_chameleon.modes.aggressive.runner.is_monitor_mode_active", return_value=False)
     @patch("cafe_chameleon.modes.aggressive.runner.auto_detect_network_params", return_value={"interface": "wlan0"})
     @patch("cafe_chameleon.modes.aggressive.runner.get_active_profile", return_value="Cafe_WiFi")
     @patch("cafe_chameleon.modes.aggressive.runner.get_ssid_for_profile", return_value="Cafe_SSID")
@@ -180,7 +184,8 @@ class TestAirOnlyExecution(unittest.TestCase):
         mock_has_internet,
         mock_get_ssid,
         mock_get_profile,
-        mock_auto_params
+        mock_auto_params,
+        mock_is_mon
     ):
         mock_scan_bssids.return_value = [
             {"bssid": "11:22:33:44:55:66", "signal": "80", "chan": "1", "security": "OPEN"},
@@ -212,6 +217,7 @@ class TestAirOnlyExecution(unittest.TestCase):
         # For regular --air, run_scan_wrapper MUST be called if air targets failed
         mock_run_scan_wrapper.assert_called_once()
 
+    @patch("cafe_chameleon.modes.aggressive.runner.is_monitor_mode_active", return_value=False)
     @patch("cafe_chameleon.modes.aggressive.runner.auto_detect_network_params", return_value={"interface": "wlan0"})
     @patch("cafe_chameleon.modes.aggressive.runner.get_active_profile", return_value="Cafe_WiFi")
     @patch("cafe_chameleon.modes.aggressive.runner.get_ssid_for_profile", return_value="Cafe_SSID")
@@ -235,7 +241,8 @@ class TestAirOnlyExecution(unittest.TestCase):
         mock_has_internet,
         mock_get_ssid,
         mock_get_profile,
-        mock_auto_params
+        mock_auto_params,
+        mock_is_mon
     ):
         mock_scan_bssids.return_value = [
             {"bssid": "11:22:33:44:55:66", "signal": "80", "chan": "1", "security": "OPEN"},
@@ -264,6 +271,7 @@ class TestAirOnlyExecution(unittest.TestCase):
         self.assertTrue(result)
         mock_run_scan_wrapper.assert_not_called()
 
+    @patch("cafe_chameleon.modes.aggressive.runner.is_monitor_mode_active", return_value=False)
     @patch("cafe_chameleon.modes.aggressive.runner.auto_detect_network_params", return_value={"interface": "wlan0"})
     @patch("cafe_chameleon.modes.aggressive.runner.get_active_profile", return_value="Cafe_WiFi")
     @patch("cafe_chameleon.modes.aggressive.runner.get_ssid_for_profile", return_value="Cafe_SSID")
@@ -287,15 +295,22 @@ class TestAirOnlyExecution(unittest.TestCase):
         mock_has_internet,
         mock_get_ssid,
         mock_get_profile,
-        mock_auto_params
+        mock_auto_params,
+        mock_is_mon
     ):
         mock_scan_bssids.return_value = [
             {"bssid": "11:22:33:44:55:66", "signal": "80", "chan": "1", "security": "OPEN"},
         ]
-        # Cycle 1 returns client, fails hijack; Cycle 2 returns client, succeeds hijack
+        # Cycle 1 returns active client, fails hijack; Cycle 2 returns active client, succeeds hijack
         mock_sniff_air.side_effect = [
-            {"11:22:33:44:55:66": {"00:11:22:33:44:01": "10.0.0.10"}},
-            {"11:22:33:44:55:66": {"00:11:22:33:44:02": "10.0.0.20"}}
+            AirClientsMap(
+                {"11:22:33:44:55:66": {"00:11:22:33:44:01": "10.0.0.10"}},
+                client_metadata={"00:11:22:33:44:01": {"active": True, "bssid": "11:22:33:44:55:66"}}
+            ),
+            AirClientsMap(
+                {"11:22:33:44:55:66": {"00:11:22:33:44:02": "10.0.0.20"}},
+                client_metadata={"00:11:22:33:44:02": {"active": True, "bssid": "11:22:33:44:55:66"}}
+            )
         ]
         mock_has_internet.return_value = False
         mock_test_air_targets.side_effect = [
@@ -336,6 +351,98 @@ class TestAirOnlyExecution(unittest.TestCase):
             active_trigger_duration=30
         )
         mock_run_scan_wrapper.assert_not_called()
+
+    @patch("cafe_chameleon.modes.aggressive.runner.is_monitor_mode_active", return_value=False)
+    @patch("cafe_chameleon.modes.aggressive.runner.auto_detect_network_params", return_value={"interface": "wlan0"})
+    @patch("cafe_chameleon.modes.aggressive.runner.get_active_profile", return_value="Cafe_WiFi")
+    @patch("cafe_chameleon.modes.aggressive.runner.get_ssid_for_profile", return_value="Cafe_SSID")
+    @patch("cafe_chameleon.modes.aggressive.runner.has_internet", return_value=False)
+    @patch("cafe_chameleon.modes.aggressive.runner.scan_bssids_for_ssid")
+    @patch("cafe_chameleon.modes.aggressive.runner.sniff_air_clients")
+    @patch("cafe_chameleon.modes.aggressive.runner.lock_bssid", return_value=True)
+    @patch("cafe_chameleon.modes.aggressive.runner.wait_for_carrier", return_value=True)
+    @patch("cafe_chameleon.modes.aggressive.runner.set_mac_address", return_value=True)
+    @patch("cafe_chameleon.modes.aggressive.runner.test_air_client_targets")
+    @patch("cafe_chameleon.modes.aggressive.runner.run_scan_wrapper")
+    def test_air_only_zero_ignores_non_active_clients_and_retries_re_captured_active_client(
+        self,
+        mock_run_scan_wrapper,
+        mock_test_air_targets,
+        mock_set_mac,
+        mock_wait_carrier,
+        mock_lock_bssid,
+        mock_sniff_air,
+        mock_scan_bssids,
+        mock_has_internet,
+        mock_get_ssid,
+        mock_get_profile,
+        mock_auto_params,
+        mock_is_mon
+    ):
+        mock_scan_bssids.return_value = [
+            {"bssid": "11:22:33:44:55:66", "signal": "80", "chan": "1", "security": "OPEN"},
+        ]
+        # Both cycles have idle client 00:11:22:33:44:99 (active=False) and active client 00:11:22:33:44:01 (active=True).
+        # In cycle 1, 00:11:22:33:44:01 fails.
+        # In cycle 2, the exact same client 00:11:22:33:44:01 is re-captured and retried, succeeding!
+        mock_sniff_air.side_effect = [
+            AirClientsMap(
+                {
+                    "11:22:33:44:55:66": {
+                        "00:11:22:33:44:01": "10.0.0.10",
+                        "00:11:22:33:44:99": "10.0.0.99"
+                    }
+                },
+                client_metadata={
+                    "00:11:22:33:44:01": {"active": True, "bssid": "11:22:33:44:55:66"},
+                    "00:11:22:33:44:99": {"active": False, "bssid": "11:22:33:44:55:66"}
+                }
+            ),
+            AirClientsMap(
+                {
+                    "11:22:33:44:55:66": {
+                        "00:11:22:33:44:01": "10.0.0.10",
+                        "00:11:22:33:44:99": "10.0.0.99"
+                    }
+                },
+                client_metadata={
+                    "00:11:22:33:44:01": {"active": True, "bssid": "11:22:33:44:55:66"},
+                    "00:11:22:33:44:99": {"active": False, "bssid": "11:22:33:44:55:66"}
+                }
+            )
+        ]
+
+        # Cycle 1 returns failure, Cycle 2 returns success
+        mock_test_air_targets.side_effect = [
+            (False, False),
+            (True, True)
+        ]
+
+        args = argparse.Namespace(
+            profile="Cafe_WiFi",
+            interface="wlan0",
+            air=None,
+            air_only=0,
+            any_bssid=False,
+            any_ip=False,
+            force=False,
+            select_bssid=False,
+            clients=False,
+            threshold=10,
+            passive_only=False,
+            force_deauth=False
+        )
+
+        with patch("time.sleep", return_value=None):
+            result = run_aggressive(args)
+
+        self.assertTrue(result)
+        self.assertEqual(mock_test_air_targets.call_count, 2)
+        # Verify that ONLY the active client was passed to test_air_client_targets (non-active 00:11:22:33:44:99 was excluded)
+        for call_args in mock_test_air_targets.call_args_list:
+            tested_clients = call_args[0][0]
+            self.assertIn("00:11:22:33:44:01", tested_clients)
+            self.assertNotIn("00:11:22:33:44:99", tested_clients)
 
 
 if __name__ == "__main__":

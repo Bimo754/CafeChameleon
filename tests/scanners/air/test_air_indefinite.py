@@ -63,6 +63,8 @@ class TestAirIndefiniteTimerAndPanel(unittest.TestCase):
 class TestSniffAirClientsIndefinite(unittest.TestCase):
     """Tests sniff_air_clients behavior when duration=0."""
 
+    @patch("cafe_chameleon.scanners.air.sniffer.AirCountdownTimer")
+    @patch("cafe_chameleon.scanners.air.sniffer.auto_detect_network_params", return_value={"interface": "wlan0", "local_mac": "00:11:22:33:44:55", "gateway_mac": "00:11:22:33:44:01"})
     @patch("cafe_chameleon.scanners.air.sniffer.set_monitor_mode", return_value="wlan0mon")
     @patch("cafe_chameleon.scanners.air.sniffer.set_managed_mode")
     @patch("cafe_chameleon.scanners.air.sniffer.ChannelHopper")
@@ -72,7 +74,9 @@ class TestSniffAirClientsIndefinite(unittest.TestCase):
         mock_sniff,
         mock_hopper_cls,
         mock_set_managed,
-        mock_set_monitor
+        mock_set_monitor,
+        mock_auto_params,
+        mock_timer
     ):
         mock_hopper = MagicMock()
         mock_hopper_cls.return_value = mock_hopper
@@ -89,6 +93,8 @@ class TestSniffAirClientsIndefinite(unittest.TestCase):
         self.assertIsNone(mock_sniff.call_args[1]["stop_filter"])
         mock_set_managed.assert_called_with("wlan0")
 
+    @patch("cafe_chameleon.scanners.air.sniffer.AirCountdownTimer")
+    @patch("cafe_chameleon.scanners.air.sniffer.auto_detect_network_params", return_value={"interface": "wlan0", "local_mac": "00:11:22:33:44:55", "gateway_mac": "00:11:22:33:44:01"})
     @patch("cafe_chameleon.scanners.air.sniffer.set_monitor_mode", return_value="wlan0mon")
     @patch("cafe_chameleon.scanners.air.sniffer.set_managed_mode")
     @patch("cafe_chameleon.scanners.air.sniffer.ChannelHopper")
@@ -98,7 +104,9 @@ class TestSniffAirClientsIndefinite(unittest.TestCase):
         mock_sniff,
         mock_hopper_cls,
         mock_set_managed,
-        mock_set_monitor
+        mock_set_monitor,
+        mock_auto_params,
+        mock_timer
     ):
         mock_hopper = MagicMock()
         mock_hopper_cls.return_value = mock_hopper
@@ -119,6 +127,7 @@ class TestSniffAirClientsIndefinite(unittest.TestCase):
 class TestAggressiveAirZeroExecution(unittest.TestCase):
     """Tests aggressive exploration execution when --air 0 is passed."""
 
+    @patch("cafe_chameleon.modes.aggressive.runner.is_monitor_mode_active", return_value=False)
     @patch("cafe_chameleon.modes.aggressive.runner.auto_detect_network_params", return_value={"interface": "wlan0"})
     @patch("cafe_chameleon.modes.aggressive.runner.get_active_profile", return_value="Cafe_WiFi")
     @patch("cafe_chameleon.modes.aggressive.runner.get_ssid_for_profile", return_value="Cafe_SSID")
@@ -142,7 +151,8 @@ class TestAggressiveAirZeroExecution(unittest.TestCase):
         mock_has_internet,
         mock_get_ssid,
         mock_get_profile,
-        mock_auto_params
+        mock_auto_params,
+        mock_is_mon
     ):
         mock_scan_bssids.return_value = [
             {"bssid": "11:22:33:44:55:66", "signal": "80", "chan": "1", "security": "OPEN"},

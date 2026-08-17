@@ -101,7 +101,9 @@ def reconnect_wifi(
     local_ip = target_ip or params.get("local_ip")
     cidr = params.get("cidr", "")
     netmask = cidr.split("/")[1] if cidr and "/" in cidr else "24"
-    broadcast = params.get("broadcast", "255.255.255.255")
+    broadcast = params.get("broadcast") or "255.255.255.255"
+    if str(broadcast).strip().lower() in ("none", "", "null"):
+        broadcast = "255.255.255.255"
     gateway = params.get("gateway_ip", "")
     gateway_mac = params.get("gateway_mac")
 
@@ -153,8 +155,9 @@ def soft_heal_connection(
     """
     trace(f"[FEATURE] Soft healing connection on {interface} (IP: {local_ip or 'Dynamic'}, Gateway: {gateway or 'None'})")
     if local_ip:
+        brd_val = str(broadcast).strip() if (broadcast and str(broadcast).strip().lower() not in ("none", "", "null")) else "+"
         _run(["ip", "addr", "flush", "dev", interface, "scope", "global"], debug=False)
-        _run(["ip", "-4", "addr", "add", f"{local_ip}/{netmask}", "broadcast", broadcast, "dev", interface], debug=False)
+        _run(["ip", "-4", "addr", "add", f"{local_ip}/{netmask}", "broadcast", brd_val, "dev", interface], debug=False)
         if gateway:
             _run(["ip", "route", "flush", "dev", interface], debug=False)
             _run(["ip", "route", "replace", "default", "via", gateway, "dev", interface, "onlink"], debug=False)
@@ -225,8 +228,9 @@ def perform_reconnect(
 
         # Restore static IP and routes if an active IP was captured
         if local_ip:
+            brd_val = str(broadcast).strip() if (broadcast and str(broadcast).strip().lower() not in ("none", "", "null")) else "+"
             _run(["ip", "addr", "flush", "dev", interface, "scope", "global"], debug=False)
-            _run(["ip", "-4", "addr", "add", f"{local_ip}/{netmask}", "broadcast", broadcast, "dev", interface], debug=False)
+            _run(["ip", "-4", "addr", "add", f"{local_ip}/{netmask}", "broadcast", brd_val, "dev", interface], debug=False)
             if gateway:
                 _run(["ip", "route", "flush", "dev", interface], debug=False)
                 _run(["ip", "route", "replace", "default", "via", gateway, "dev", interface, "onlink"], debug=False)

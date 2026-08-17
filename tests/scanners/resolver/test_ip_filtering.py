@@ -191,14 +191,16 @@ class TestIPFiltering(unittest.TestCase):
         resolved = listen_passive_traffic("cc:3f:36:46:26:6c", "wlan0", timeout=1, target_subnet="10.55.12.0/22")
         self.assertEqual(resolved, "10.55.12.162")
 
+    @patch("cafe_chameleon.modes.aggressive.air_target_handler._run")
     @patch("cafe_chameleon.modes.aggressive.air_target_handler.hijack")
     @patch("cafe_chameleon.modes.aggressive.air_target_handler.resolve_mac_to_ip")
     @patch("cafe_chameleon.modes.aggressive.air_target_handler.wait_for_carrier")
     @patch("cafe_chameleon.modes.aggressive.air_target_handler.set_restore_params")
-    def test_test_air_client_targets_ignores_public_air_ip(self, mock_restore_params, mock_carrier, mock_resolve, mock_hijack):
+    def test_test_air_client_targets_ignores_public_air_ip(self, mock_restore_params, mock_carrier, mock_resolve, mock_hijack, mock_run):
         mock_carrier.return_value = True
         mock_resolve.return_value = "10.55.12.162"  # Correctly resolved local IP
         mock_hijack.return_value = True
+        mock_run.return_value = (0, "")
 
         new_air_clients = {"cc:3f:36:46:26:6c": "162.159.192.7"}  # Public IP captured by mistake
         tried_macs = set()

@@ -61,7 +61,14 @@ def run_simple(args, quiet_header: bool = False) -> bool:
     gw_ip = auto_params.get("gateway_ip", "")
     gw_mac = auto_params.get("gateway_mac", "")
     netmask = auto_params.get("cidr", "").split("/")[1] if auto_params.get("cidr") and "/" in auto_params.get("cidr") else "24"
-    broadcast = auto_params.get("broadcast", "")
+    broadcast = auto_params.get("broadcast") or ""
+    if not broadcast or str(broadcast).strip().lower() in ("none", "", "null"):
+        try:
+            import ipaddress
+            net = ipaddress.IPv4Network(f"{local_ip}/{netmask}", strict=False)
+            broadcast = str(net.broadcast_address)
+        except Exception:
+            broadcast = "+"
     ipmask = auto_params.get("cidr", f"{local_ip}/{netmask}")
 
     set_restore_params(interface, local_mac, ipmask, broadcast, gw_ip, profile=profile)

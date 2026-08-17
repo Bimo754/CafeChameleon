@@ -197,13 +197,18 @@ class TestNetworkSecurityAndDeauth(unittest.TestCase):
         self.assertEqual(args.command, "aggressive")
         self.assertFalse(getattr(args, "force_deauth", False))
 
+    @patch("cafe_chameleon.network.hijack.impersonate.get_active_profile", return_value="TestProfile")
+    @patch("cafe_chameleon.network.hijack.impersonate.start_background_garp")
+    @patch("cafe_chameleon.network.hijack.impersonate.send_gratuitous_arp")
+    @patch("cafe_chameleon.network.hijack.impersonate.get_carrier_status", return_value=True)
+    @patch("cafe_chameleon.network.hijack.impersonate.wait_for_gateway_pong", return_value=True)
     @patch("cafe_chameleon.network.hijack.impersonate.send_deauth")
     @patch("cafe_chameleon.network.hijack.impersonate.set_mac_address")
     @patch("cafe_chameleon.network.hijack.impersonate.wait_for_carrier")
     @patch("cafe_chameleon.network.hijack.impersonate.has_internet")
     @patch("cafe_chameleon.network.hijack.impersonate.test_internet_speed")
     @patch("cafe_chameleon.network.hijack.impersonate._run")
-    def test_hijack_passes_security_and_force_deauth(self, mock_run, mock_speed, mock_internet, mock_carrier, mock_mac, mock_send_deauth):
+    def test_hijack_passes_security_and_force_deauth(self, mock_run, mock_speed, mock_internet, mock_carrier, mock_mac, mock_send_deauth, mock_pong, mock_get_carrier, mock_garp, mock_bg_garp, mock_profile):
         mock_send_deauth.return_value = True
         mock_mac.return_value = True
         mock_carrier.return_value = True
@@ -221,14 +226,16 @@ class TestNetworkSecurityAndDeauth(unittest.TestCase):
             "00:11:22:33:44:55", "aa:bb:cc:dd:ee:ff", "wlan0", channel=None, security="WPA2", force_deauth=True
         )
 
+    @patch("cafe_chameleon.modes.aggressive.air_target_handler._run")
     @patch("cafe_chameleon.modes.aggressive.air_target_handler.hijack")
     @patch("cafe_chameleon.modes.aggressive.air_target_handler.resolve_mac_to_ip")
     @patch("cafe_chameleon.modes.aggressive.air_target_handler.wait_for_carrier")
     @patch("cafe_chameleon.modes.aggressive.air_target_handler.set_restore_params")
-    def test_test_air_client_targets_passes_security_and_force_deauth(self, mock_restore_params, mock_carrier, mock_resolve, mock_hijack):
+    def test_test_air_client_targets_passes_security_and_force_deauth(self, mock_restore_params, mock_carrier, mock_resolve, mock_hijack, mock_run):
         mock_carrier.return_value = True
         mock_resolve.return_value = "10.55.12.162"
         mock_hijack.return_value = True
+        mock_run.return_value = (0, "")
 
         new_air_clients = {"cc:3f:36:46:26:6c": "10.55.12.162"}
         tried_macs = set()

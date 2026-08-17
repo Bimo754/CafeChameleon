@@ -52,6 +52,7 @@ class TestWifiReconnect(unittest.TestCase):
             max_retries=3
         )
 
+    @patch("cafe_chameleon.network.nmcli.reconnect.wait_for_gateway_pong", return_value=True)
     @patch("cafe_chameleon.network.nmcli.reconnect.pin_gateway_neighbor")
     @patch("cafe_chameleon.network.nmcli.reconnect.send_deauth")
     @patch("cafe_chameleon.network.nmcli.reconnect.get_connected_bssid")
@@ -65,7 +66,8 @@ class TestWifiReconnect(unittest.TestCase):
         mock_wait_carrier,
         mock_conn_bssid,
         mock_send_deauth,
-        mock_pin
+        mock_pin,
+        mock_pong
     ):
         mock_run.return_value = (0, "Connection successfully activated")
         mock_wait_carrier.return_value = True

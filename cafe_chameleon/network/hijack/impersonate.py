@@ -62,7 +62,17 @@ def hijack(
                 carrier_ok = wait_for_carrier(interface, timeout=3.0, poll_interval=0.05)
 
             _run(f"ip addr flush dev {interface} scope global")
-            rc_ip, ip_err = _run(f"ip -4 addr add {ip}/{netmask} broadcast {broadcast} dev {interface}")
+            brd_val = None
+            if broadcast and str(broadcast).strip().lower() not in ("none", "", "null"):
+                brd_val = str(broadcast).strip()
+            else:
+                try:
+                    import ipaddress
+                    net = ipaddress.IPv4Network(f"{ip}/{netmask}", strict=False)
+                    brd_val = str(net.broadcast_address)
+                except Exception:
+                    brd_val = "+"
+            rc_ip, ip_err = _run(f"ip -4 addr add {ip}/{netmask} broadcast {brd_val} dev {interface}")
 
             try:
                 if gateway:

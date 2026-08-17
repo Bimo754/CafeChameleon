@@ -37,7 +37,8 @@ def restore(interface: str, macaddress: str, ipmask: str, broadcast: str, gatewa
 
     try:
         _run(f"ip addr flush dev {interface}")
-        _run(f"ip addr add {ipmask} broadcast {broadcast} dev {interface}")
+        brd_val = str(broadcast).strip() if (broadcast and str(broadcast).strip().lower() not in ("none", "", "null")) else "+"
+        _run(f"ip addr add {ipmask} broadcast {brd_val} dev {interface}")
     except Exception:
         pass
 

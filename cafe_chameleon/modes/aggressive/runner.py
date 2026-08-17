@@ -40,6 +40,7 @@ from cafe_chameleon.scanners.air import (
 
 from .selector import display_and_select_bssid
 from .air_target_handler import filter_valid_air_clients, test_air_client_targets
+from .ranker import is_client_active
 from cafe_chameleon.network.hotspot import share_wifi_hotspot
 from cafe_chameleon.utils.blacklist import is_blacklisted, load_blacklist
 
@@ -128,10 +129,12 @@ def run_aggressive(args) -> bool:
         log_main(f"[*] Monitor mode will run until an active target is detected, then collect for 30s and hijack.")
         
         cycle = 1
-        tried_macs = set()
         last_skip_time = 0
+        persisted_bssid_targets = None
 
         while True:
+            tried_macs = set()
+
             if has_internet():
                 if not getattr(args, "force", False):
                     log_main("[+] Internet online.")
@@ -149,8 +152,10 @@ def run_aggressive(args) -> bool:
 
             blacklist = load_blacklist()
             bssids = [b for b in bssids if not is_blacklisted(b.get("bssid", ""), blacklist)]
+            if persisted_bssid_targets:
+                bssids = [b for b in bssids if b.get("bssid", "").lower() in persisted_bssid_targets]
             if not bssids:
-                log_main(f"[-] All discovered BSSIDs for SSID '{ssid}' are blacklisted. Retrying in 2s...")
+                log_main(f"[-] All discovered BSSIDs for SSID '{ssid}' are blacklisted or filtered. Retrying in 2s...")
                 time.sleep(2.0)
                 cycle += 1
                 continue
@@ -189,15 +194,19 @@ def run_aggressive(args) -> bool:
                 for b_clients in air_clients_map.values():
                     if isinstance(b_clients, dict):
                         for mac, ip in b_clients.items():
-                            if mac not in pooled_air_clients or (not pooled_air_clients[mac] and ip):
-                                pooled_air_clients[mac] = ip
+                            if is_client_active(mac, air_clients_map):
+                                if mac not in pooled_air_clients or (not pooled_air_clients[mac] and ip):
+                                    pooled_air_clients[mac] = ip
 
+            select_req = getattr(args, "select_bssid", False) if cycle == 1 else False
             ranked_bssids = display_and_select_bssid(
                 bssids,
                 air_clients_map,
-                getattr(args, "select_bssid", False),
+                select_req,
                 prioritize_clients=prioritize_clients
             )
+            if cycle == 1 and getattr(args, "select_bssid", False) and ranked_bssids:
+                persisted_bssid_targets = {b["bssid"].lower() for b in ranked_bssids}
 
             for idx, item in enumerate(ranked_bssids, start=1):
                 target_bssid = item["bssid"]
@@ -207,6 +216,22 @@ def run_aggressive(args) -> bool:
                 signal_pct = item["signal"]
                 chan = item["chan"]
                 target_sec = item.get("security", "")
+
+                if any_bssid_mode:
+                    bssid_air_clients = pooled_air_clients
+                else:
+                    bssid_air_clients = {
+                        m: ip for m, ip in air_clients_map.get(target_bssid.lower(), {}).items()
+                        if is_client_active(m, air_clients_map)
+                    }
+
+                auto_params = auto_detect_network_params(target_iface=interface)
+                new_air_clients = filter_valid_air_clients(
+                    bssid_air_clients, tried_macs, auto_params, bssids, air_clients_map=air_clients_map, active_only=True
+                )
+
+                if not new_air_clients:
+                    continue
 
                 try:
                     clear_window("hijack")
@@ -236,24 +261,13 @@ def run_aggressive(args) -> bool:
                             handle_auto_share_if_requested(args, interface)
                             return True
 
-                    if any_bssid_mode:
-                        bssid_air_clients = pooled_air_clients
-                    else:
-                        bssid_air_clients = air_clients_map.get(target_bssid.lower(), {})
-
-                    auto_params = auto_detect_network_params(target_iface=interface)
-                    new_air_clients = filter_valid_air_clients(
-                        bssid_air_clients, tried_macs, auto_params, bssids, air_clients_map=air_clients_map
+                    success_air, stop_early = test_air_client_targets(
+                        new_air_clients, interface, target_bssid, chan, profile, tried_macs, auto_params, args,
+                        security=target_sec, air_clients_map=air_clients_map
                     )
-
-                    if new_air_clients:
-                        success_air, stop_early = test_air_client_targets(
-                            new_air_clients, interface, target_bssid, chan, profile, tried_macs, auto_params, args,
-                            security=target_sec, air_clients_map=air_clients_map
-                        )
-                        if stop_early or (success_air and not getattr(args, "force", False)):
-                            handle_auto_share_if_requested(args, interface)
-                            return True
+                    if stop_early or (success_air and not getattr(args, "force", False)):
+                        handle_auto_share_if_requested(args, interface)
+                        return True
 
                     set_hijack_status(ip=None, mac=None, technique="Idle")
 
