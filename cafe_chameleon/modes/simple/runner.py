@@ -31,7 +31,9 @@ def run_simple(args, quiet_header: bool = False) -> bool:
     register_signal_handler()
 
     interface = getattr(args, "interface", None) or "wlan0"
+    profile = getattr(args, "profile", None)
     trace(f"[FEATURE] Initializing Simple mode execution on interface {interface}")
+    set_restore_params(interface, "", "", "", "", profile=profile)
 
     if is_monitor_mode_active(interface):
         trace(f"[FEATURE] Interface {interface} is in monitor mode; restoring to managed mode for subnet scan")

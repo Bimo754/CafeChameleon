@@ -13,12 +13,12 @@ from cafe_chameleon.network.sysfs import wait_for_carrier
 def is_monitor_mode_active(iface: str = "wlan0") -> bool:
     """Checks if the given interface or system has an active 802.11 monitor interface."""
     rc, out = _run(f"iw dev {iface} info", debug=False)
-    if "type monitor" in out.lower():
+    if rc == 0 and "type monitor" in out.lower():
         return True
     mon = get_monitor_interface(iface)
     if mon != iface:
         rc, out_mon = _run(f"iw dev {mon} info", debug=False)
-        if "type monitor" in out_mon.lower():
+        if rc == 0 and "type monitor" in out_mon.lower():
             return True
     rc, link_out = _run(["ip", "-o", "link", "show"], debug=False)
     for line in link_out.splitlines():
@@ -28,13 +28,30 @@ def is_monitor_mode_active(iface: str = "wlan0") -> bool:
 
 
 def get_monitor_interface(default_iface: str = "wlan0") -> str:
-    """Detects active monitor mode interface name (e.g. wlan0mon or wlan0)."""
-    rc, out = _run(["ip", "-o", "link", "show"])
-    for line in out.splitlines():
-        if "wlan0mon" in line or "mon0" in line:
+    """Detects active monitor mode interface name (e.g. wlan0mon, wlan0, or mon0)."""
+    # 1. Check iw dev for any interface configured as type monitor
+    rc, iw_out = _run(["iw", "dev"], debug=False)
+    if rc == 0 and iw_out:
+        current_iface = None
+        for line in iw_out.splitlines():
+            line_str = line.strip()
+            if line_str.startswith("Interface "):
+                current_iface = line_str.split()[1].strip()
+            elif current_iface and "type monitor" in line_str:
+                if current_iface == default_iface or current_iface.startswith(default_iface) or "mon" in current_iface:
+                    return current_iface
+
+    # 2. Check ip -o link show
+    rc, out = _run(["ip", "-o", "link", "show"], debug=False)
+    if rc == 0 and out:
+        target_mon = f"{default_iface}mon"
+        for line in out.splitlines():
             parts = line.split(":", 2)
             if len(parts) >= 2:
-                return parts[1].strip()
+                name = parts[1].strip()
+                if name == target_mon or name in ("wlan0mon", "mon0", "mon1") or (name.endswith("mon") and name.startswith(default_iface[:4])):
+                    return name
+
     return default_iface
 
 
@@ -51,16 +68,28 @@ def set_monitor_mode(interface: str = "wlan0") -> str:
     _run(["pkill", "-9", "-f", f"dhclient.*{interface}"], debug=False)
     _run(["ip", "link", "set", "dev", interface, "down"], debug=False)
 
+    switched = False
     if shutil.which("airmon-ng"):
         _run(["airmon-ng", "check", "kill"], debug=False)
-        _run(["airmon-ng", "start", interface], debug=False)
-    else:
+        rc_air, _ = _run(["airmon-ng", "start", interface], debug=False)
+        if rc_air == 0:
+            switched = True
+
+    if not switched or not is_monitor_mode_active(interface):
         _run(["iw", "dev", interface, "set", "type", "monitor"], debug=False)
         _run(["ip", "link", "set", "dev", interface, "up"], debug=False)
 
     mon_iface = get_monitor_interface(interface)
     _run(["ip", "link", "set", "dev", mon_iface, "up"], debug=False)
-    time.sleep(0.3)
+    time.sleep(0.4)
+
+    try:
+        from scapy.config import conf
+        if hasattr(conf, "ifaces") and hasattr(conf.ifaces, "reload"):
+            conf.ifaces.reload()
+    except Exception:
+        pass
+
     return mon_iface
 
 
@@ -105,4 +134,10 @@ def set_managed_mode(interface: str = "wlan0") -> None:
             break
         time.sleep(0.5)
 
-    wait_for_carrier(interface, timeout=6.0)
+    try:
+        from scapy.config import conf
+        if hasattr(conf, "ifaces") and hasattr(conf.ifaces, "reload"):
+            conf.ifaces.reload()
+    except Exception:
+        pass
+

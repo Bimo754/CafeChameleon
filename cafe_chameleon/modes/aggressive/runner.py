@@ -38,6 +38,8 @@ from cafe_chameleon.scanners.air import (
     calculate_scaled_air_duration
 )
 
+from cafe_chameleon.utils.process import _run
+from cafe_chameleon.utils.state import set_restore_params
 from .selector import display_and_select_bssid
 from .air_target_handler import filter_valid_air_clients, test_air_client_targets
 from .ranker import is_client_active
@@ -81,6 +83,7 @@ def run_aggressive(args) -> bool:
 
     interface = getattr(args, "interface", None) or "wlan0"
     trace(f"[FEATURE] Initializing Aggressive exploration mode on interface {interface} (Profile: '{profile}', SSID: '{ssid}')")
+    set_restore_params(interface, "", "", "", "", profile=profile)
 
     air_arg = getattr(args, "air", None)
     air_only_arg = getattr(args, "air_only", None)
@@ -126,7 +129,7 @@ def run_aggressive(args) -> bool:
     # Continuous Active-Triggered Air-Only Hunting Loop (--air-only 0)
     if is_continuous_air_only:
         log_main(f"[+] Continuous Air-Only hunting mode active (--air-only 0).")
-        log_main(f"[*] Monitor mode will run until an active target is detected, then collect for 30s and hijack.")
+        log_main(f"[*] Attack will run until an active target is detected, then collect for 30s and hijack.")
         
         cycle = 1
         last_skip_time = 0
@@ -134,6 +137,13 @@ def run_aggressive(args) -> bool:
 
         while True:
             tried_macs = set()
+
+            if profile:
+                _run(["nmcli", "connection", "modify", profile, "802-11-wireless.bssid", ""], debug=False)
+                _run(["nmcli", "connection", "modify", profile, "802-11-wireless.cloned-mac-address", ""], debug=False)
+
+            if is_monitor_mode_active(interface):
+                set_managed_mode(interface)
 
             if has_internet():
                 if not getattr(args, "force", False):
@@ -286,6 +296,9 @@ def run_aggressive(args) -> bool:
                     continue
 
             log_main(f"[-] Cycle #{cycle} completed without verified internet. Resuming monitor mode to hunt for active targets...")
+            if profile:
+                _run(["nmcli", "connection", "modify", profile, "802-11-wireless.bssid", ""], debug=False)
+                _run(["nmcli", "connection", "modify", profile, "802-11-wireless.cloned-mac-address", ""], debug=False)
             cycle += 1
             if is_monitor_mode_active(interface):
                 set_managed_mode(interface)

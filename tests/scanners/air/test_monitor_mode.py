@@ -164,5 +164,26 @@ class TestMonitorModeCleanup(unittest.TestCase):
         mock_set_managed.assert_called_with("wlan0")
 
 
+    @patch("cafe_chameleon.scanners.air.mode._run")
+    def test_get_monitor_interface_from_iw_dev(self, mock_run):
+        from cafe_chameleon.scanners.air.mode import get_monitor_interface
+        # Test detection from iw dev output
+        mock_run.return_value = (0, "phy#0\n\tInterface wlp2s0mon\n\t\tifindex 42\n\t\ttype monitor\n")
+        res = get_monitor_interface("wlp2s0")
+        self.assertEqual(res, "wlp2s0mon")
+
+    @patch("cafe_chameleon.scanners.air.mode.is_monitor_mode_active", return_value=True)
+    @patch("cafe_chameleon.scanners.air.mode.get_monitor_interface", return_value="wlan0")
+    @patch("cafe_chameleon.scanners.air.mode._run")
+    @patch("shutil.which", return_value=None)
+    def test_set_monitor_mode_falls_back_to_iw(self, mock_which, mock_run, mock_get_mon, mock_is_mon):
+        from cafe_chameleon.scanners.air.mode import set_monitor_mode
+        mock_run.return_value = (0, "")
+        mon = set_monitor_mode("wlan0")
+        self.assertEqual(mon, "wlan0")
+        mock_run.assert_any_call(["iw", "dev", "wlan0", "set", "type", "monitor"], debug=False)
+
+
 if __name__ == "__main__":
     unittest.main()
+

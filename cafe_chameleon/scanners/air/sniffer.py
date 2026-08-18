@@ -508,6 +508,13 @@ def sniff_air_clients(
 
         sniff_timeout = None if effective_duration == 0 else effective_duration
         try:
+            try:
+                from scapy.config import conf
+                if hasattr(conf, "ifaces") and hasattr(conf.ifaces, "reload"):
+                    conf.ifaces.reload()
+            except Exception:
+                pass
+
             sniff(
                 iface=mon_iface,
                 timeout=sniff_timeout,
@@ -520,6 +527,9 @@ def sniff_air_clients(
     except (AirSkipInterrupt, KeyboardInterrupt):
         log_air("\n\033[93m[-] Stopped air sniff (Ctrl+C).\033[0m")
     except Exception as e:
+        from cafe_chameleon.utils.tracing import trace, log_exception_to_trace
+        trace(f"[FEATURE] Air capture error on {interface} ({mon_iface if 'mon_iface' in locals() else 'unknown'}): {e}")
+        log_exception_to_trace(e)
         log_air(f"[-] Air capture error on {interface}: {e}")
     finally:
         if hopper:

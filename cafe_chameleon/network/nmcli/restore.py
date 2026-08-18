@@ -154,13 +154,31 @@ def release_interface(interface: str | None = None, profile: str | None = None) 
     4. Resets the hardware MAC address to factory permanent default.
     5. Restores NetworkManager device management and brings interface up in clean managed state.
     """
-    from cafe_chameleon.scanners.detector import auto_detect_network_params
-    from cafe_chameleon.scanners.air import is_monitor_mode_active, set_managed_mode
+    from cafe_chameleon.scanners.detector import auto_detect_network_params, find_suitable_interface
+    from cafe_chameleon.scanners.air import is_monitor_mode_active, set_managed_mode, get_monitor_interface
     from cafe_chameleon.network.mac import reset_mac_address
     from cafe_chameleon.network.sysfs import wait_for_carrier
+    from cafe_chameleon.utils.state import get_restore_params
 
-    params = auto_detect_network_params(target_iface=interface)
-    iface = interface or params.get("interface") or "wlan0"
+    restore_p = get_restore_params()
+    if not interface and restore_p and restore_p.get("interface"):
+        interface = restore_p.get("interface")
+    if not profile and restore_p and restore_p.get("profile"):
+        profile = restore_p.get("profile")
+
+    if not interface:
+        params = auto_detect_network_params(target_iface=None)
+        cand_iface = params.get("interface")
+        if cand_iface and not cand_iface.startswith("eth") and not cand_iface.startswith("en"):
+            interface = cand_iface
+        else:
+            mon_cand = get_monitor_interface("wlan0")
+            if mon_cand and mon_cand != "wlan0":
+                interface = "wlan0"
+            else:
+                interface = find_suitable_interface() or "wlan0"
+
+    iface = interface or "wlan0"
     prof = profile or get_active_profile()
 
     trace(f"[FEATURE] Releasing and unlocking interface {iface} (Profile: {prof or 'None'})")
