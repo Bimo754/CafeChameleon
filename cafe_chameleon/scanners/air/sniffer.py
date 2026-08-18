@@ -515,13 +515,26 @@ def sniff_air_clients(
             except Exception:
                 pass
 
-            sniff(
-                iface=mon_iface,
-                timeout=sniff_timeout,
-                prn=air_packet_callback,
-                stop_filter=stop_check if (trigger_on_active and effective_duration == 0) else None,
-                store=False
-            )
+            bpf_filter = "wlan type data or (wlan type mgt and not wlan type mgt subtype beacon)"
+            try:
+                sniff(
+                    iface=mon_iface,
+                    filter=bpf_filter,
+                    timeout=sniff_timeout,
+                    prn=air_packet_callback,
+                    stop_filter=stop_check if (trigger_on_active and effective_duration == 0) else None,
+                    store=False
+                )
+            except (AirSkipInterrupt, KeyboardInterrupt):
+                raise
+            except Exception:
+                sniff(
+                    iface=mon_iface,
+                    timeout=sniff_timeout,
+                    prn=air_packet_callback,
+                    stop_filter=stop_check if (trigger_on_active and effective_duration == 0) else None,
+                    store=False
+                )
         finally:
             timer.stop()
     except (AirSkipInterrupt, KeyboardInterrupt):

@@ -118,21 +118,16 @@ def parse_air_packet(
                 flags = rt.fields.get("Flags")
             if flags is not None:
                 try:
-                    is_bad_fcs = False
                     if hasattr(flags, "value"):
-                        is_bad_fcs = bool(int(flags.value) & 0x40)
+                        if int(flags.value) & 0x40:
+                            return
                     elif isinstance(flags, (int, float)):
-                        is_bad_fcs = bool(int(flags) & 0x40)
+                        if int(flags) & 0x40:
+                            return
                     elif "bad" in str(flags).lower() and "fcs" in str(flags).lower():
-                        is_bad_fcs = True
-                    else:
-                        is_bad_fcs = bool(int(flags) & 0x40)
-
-                    if is_bad_fcs:
                         return
                 except Exception:
-                    if "bad" in str(flags).lower() and "fcs" in str(flags).lower():
-                        return
+                    pass
 
         dot11 = pkt[Dot11]
         addr1 = str(dot11.addr1).lower() if dot11.addr1 else None
@@ -263,11 +258,12 @@ def parse_air_packet(
             if not client_ip:
                 try:
                     payload = bytes(dot11.payload)
-                    snap_idx = payload.find(b"\xaa\xaa\x03\x00\x00\x00")
+                    import socket
+                    # 1. Search for LLC/SNAP encapsulation (\xaa\xaa\x03...)
+                    snap_idx = payload.find(b"\xaa\xaa\x03")
                     if snap_idx != -1 and len(payload) >= snap_idx + 8:
                         ethertype = payload[snap_idx+6:snap_idx+8]
                         data = payload[snap_idx+8:]
-                        import socket
                         if ethertype == b"\x08\x00" and len(data) >= 20:
                             if (data[0] & 0xf0) == 0x40:
                                 ip_src = socket.inet_ntoa(data[12:16])
@@ -295,6 +291,28 @@ def parse_air_packet(
                                     client_ip = arp_src
                                 elif is_valid_ipv4(arp_dst):
                                     client_ip = arp_dst
+
+                    # 2. Resilient raw IPv4 scan if SNAP was not matched or payload has QoS offset
+                    if not client_ip and len(payload) >= 20:
+                        max_offset = min(len(payload) - 20 + 1, 32)
+                        for offset in range(max_offset):
+                            if (payload[offset] & 0xf0) == 0x40 and (payload[offset] & 0x0f) >= 5:
+                                cand_src = socket.inet_ntoa(payload[offset+12:offset+16])
+                                cand_dst = socket.inet_ntoa(payload[offset+16:offset+20])
+                                if from_ds:
+                                    if is_valid_ipv4(cand_dst):
+                                        client_ip = cand_dst
+                                        break
+                                    elif is_valid_ipv4(cand_src):
+                                        client_ip = cand_src
+                                        break
+                                else:
+                                    if is_valid_ipv4(cand_src):
+                                        client_ip = cand_src
+                                        break
+                                    elif is_valid_ipv4(cand_dst):
+                                        client_ip = cand_dst
+                                        break
                 except Exception:
                     pass
 
@@ -431,6 +449,7 @@ def parse_air_packet(
 
                 # Determine if this frame is an active data transmission
                 is_data_carrying = False
+                sub_val = None
                 if dot11.type == 2:
                     try:
                         sub_val = int(subtype) if subtype is not None else None
@@ -449,7 +468,11 @@ def parse_air_packet(
                     elif sub_val is None:
                         is_data_carrying = True
 
-                is_active_frame = (dot11.type == 2 and is_data_carrying) or bool(client_ip and (to_ds or from_ds or dot11.type == 2))
+                # QoS Null (12) and Null Data (4) with ToDS/FromDS indicate active associated stations
+                is_active_frame = (
+                    (dot11.type == 2 and (is_data_carrying or sub_val in (0, 1, 2, 3, 4, 8, 9, 10, 11, 12) or to_ds or from_ds))
+                    or bool(client_ip and (to_ds or from_ds or dot11.type == 2))
+                )
 
                 # Ensure target BSSID bucket exists
                 if matched_bssid not in bssid_to_clients:

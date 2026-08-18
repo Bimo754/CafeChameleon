@@ -2,6 +2,7 @@
 cafe_chameleon.scanners.passive_scanner - Passive broadcast/multicast traffic sniffer.
 """
 
+import ipaddress
 from cafe_chameleon.ui.console import log_scan
 from cafe_chameleon.scanners.resolver.kernel_cache import is_valid_ipv4
 
@@ -55,7 +56,11 @@ def passive_sniff_subnet(subnet_cidr, interface: str, duration: int = 30) -> lis
                         discovered[ip_cand] = mac_cand
 
     try:
-        sniff(iface=interface, timeout=duration, prn=packet_callback, store=False)
+        bpf_filter = "arp or (ip and (broadcast or multicast))"
+        try:
+            sniff(iface=interface, filter=bpf_filter, timeout=duration, prn=packet_callback, store=False)
+        except Exception:
+            sniff(iface=interface, timeout=duration, prn=packet_callback, store=False)
     except Exception as e:
         log_scan(f"[-] Passive sniffing exception on {interface}: {e}")
 

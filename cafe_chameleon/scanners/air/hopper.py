@@ -16,7 +16,7 @@ class ChannelHopper:
         interface: str,
         channels: list[int],
         dwell_times: dict[int, float] | None = None,
-        default_dwell: float = 0.25,
+        default_dwell: float = 0.20,
         on_channel_change: Callable[[int], None] | None = None
     ):
         self.interface = interface
@@ -28,6 +28,18 @@ class ChannelHopper:
         self._thread = None
 
     def start(self) -> None:
+        if not self.channels:
+            return
+        if len(self.channels) == 1:
+            ch = self.channels[0]
+            _run(["iw", "dev", self.interface, "set", "channel", str(ch)], debug=False)
+            if self.on_channel_change:
+                try:
+                    self.on_channel_change(ch)
+                except Exception:
+                    pass
+            return
+
         def channel_hopper_loop():
             idx = 0
             while not self.stop_event.is_set():
@@ -49,3 +61,4 @@ class ChannelHopper:
         self.stop_event.set()
         if self._thread:
             self._thread.join(timeout=timeout)
+
