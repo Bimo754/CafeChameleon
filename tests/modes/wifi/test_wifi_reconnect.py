@@ -279,7 +279,7 @@ class TestWifiReconnect(unittest.TestCase):
     @patch("cafe_chameleon.network.nmcli.reconnect.get_connected_bssid")
     @patch("cafe_chameleon.network.nmcli.reconnect.get_carrier_status")
     @patch("time.sleep")
-    def test_monitor_and_auto_reconnect_carrier_loss_immediate_hard_reconnect(
+    def test_monitor_and_auto_reconnect_carrier_loss_after_consecutive_drops(
         self,
         mock_sleep,
         mock_carrier,
@@ -291,12 +291,13 @@ class TestWifiReconnect(unittest.TestCase):
         mock_garp_thread.return_value = mock_stop_event
 
         # Initial check passes (carrier=True, bssid matches).
-        # Loop iteration 1: carrier drops (carrier=False) -> immediate hard reconnect.
-        # Loop iteration 2: KeyboardInterrupt.
-        mock_carrier.side_effect = [True, False, True]
-        mock_bssid.side_effect = ["00:11:22:33:44:55", "00:11:22:33:44:55", "00:11:22:33:44:55"]
+        # Iteration 1: transient carrier drop (carrier=False, failures=1 -> no reconnect)
+        # Iteration 2: confirmed carrier drop (carrier=False, failures=2 -> hard reconnect)
+        # Iteration 3: KeyboardInterrupt
+        mock_carrier.side_effect = [True, False, False, True]
+        mock_bssid.side_effect = ["00:11:22:33:44:55", "00:11:22:33:44:55", "00:11:22:33:44:55", "00:11:22:33:44:55"]
         mock_perform.return_value = True
-        mock_sleep.side_effect = [None, KeyboardInterrupt]
+        mock_sleep.side_effect = [None, None, KeyboardInterrupt]
 
         res = monitor_and_auto_reconnect(
             profile="MyHotspot",
@@ -312,6 +313,90 @@ class TestWifiReconnect(unittest.TestCase):
         )
         self.assertTrue(res)
         mock_perform.assert_called_once()
+
+    @patch("cafe_chameleon.network.nmcli.reconnect.has_internet")
+    @patch("cafe_chameleon.network.nmcli.reconnect.start_background_garp")
+    @patch("cafe_chameleon.network.nmcli.reconnect.perform_reconnect")
+    @patch("cafe_chameleon.network.nmcli.reconnect.get_connected_bssid")
+    @patch("cafe_chameleon.network.nmcli.reconnect.get_carrier_status")
+    @patch("time.sleep")
+    def test_monitor_and_auto_reconnect_carrier_debounce_ignores_single_blip(
+        self,
+        mock_sleep,
+        mock_carrier,
+        mock_bssid,
+        mock_perform,
+        mock_garp_thread,
+        mock_internet
+    ):
+        mock_stop_event = MagicMock()
+        mock_garp_thread.return_value = mock_stop_event
+        mock_internet.return_value = True
+
+        # Initial check passes (carrier=True, bssid matches).
+        # Iteration 1: transient carrier drop (carrier=False, failures=1 -> no reconnect)
+        # Iteration 2: carrier recovered (carrier=True, failures reset to 0)
+        # Iteration 3: KeyboardInterrupt
+        mock_carrier.side_effect = [True, False, True, True]
+        mock_bssid.side_effect = ["00:11:22:33:44:55", "00:11:22:33:44:55", "00:11:22:33:44:55", "00:11:22:33:44:55"]
+        mock_sleep.side_effect = [None, None, KeyboardInterrupt]
+
+        res = monitor_and_auto_reconnect(
+            profile="MyHotspot",
+            interface="wlan0",
+            bssid="00:11:22:33:44:55",
+            mac="aa:bb:cc:dd:ee:ff",
+            local_ip="192.168.1.100",
+            netmask="24",
+            broadcast="192.168.1.255",
+            gateway="192.168.1.1",
+            timeout=5.0,
+            check_interval=1.0
+        )
+        self.assertTrue(res)
+        mock_perform.assert_not_called()
+
+    @patch("cafe_chameleon.network.nmcli.reconnect.has_internet")
+    @patch("cafe_chameleon.network.nmcli.reconnect.start_background_garp")
+    @patch("cafe_chameleon.network.nmcli.reconnect.perform_reconnect")
+    @patch("cafe_chameleon.network.nmcli.reconnect.get_connected_bssid")
+    @patch("cafe_chameleon.network.nmcli.reconnect.get_carrier_status")
+    @patch("time.sleep")
+    def test_monitor_and_auto_reconnect_roam_tolerance_when_internet_ok(
+        self,
+        mock_sleep,
+        mock_carrier,
+        mock_bssid,
+        mock_perform,
+        mock_garp_thread,
+        mock_internet
+    ):
+        mock_stop_event = MagicMock()
+        mock_garp_thread.return_value = mock_stop_event
+        mock_internet.return_value = True
+
+        # Initial check passes (carrier=True, bssid=00:11:22:33:44:55)
+        # Iteration 1: Roams to 00:11:22:33:44:66, but has_internet=True -> adopts new BSSID, no reconnect
+        # Iteration 2: Connected to 00:11:22:33:44:66, matching target -> continues smoothly
+        # Iteration 3: KeyboardInterrupt
+        mock_carrier.side_effect = [True, True, True, True]
+        mock_bssid.side_effect = ["00:11:22:33:44:55", "00:11:22:33:44:66", "00:11:22:33:44:66", "00:11:22:33:44:66"]
+        mock_sleep.side_effect = [None, None, KeyboardInterrupt]
+
+        res = monitor_and_auto_reconnect(
+            profile="MyHotspot",
+            interface="wlan0",
+            bssid="00:11:22:33:44:55",
+            mac="aa:bb:cc:dd:ee:ff",
+            local_ip="192.168.1.100",
+            netmask="24",
+            broadcast="192.168.1.255",
+            gateway="192.168.1.1",
+            timeout=5.0,
+            check_interval=1.0
+        )
+        self.assertTrue(res)
+        mock_perform.assert_not_called()
 
     @patch("cafe_chameleon.modes.wifi.controller.reconnect_wifi")
     def test_run_wifi_controller_reconnect_default(self, mock_reconnect):
@@ -478,8 +563,36 @@ class TestWifiReconnect(unittest.TestCase):
             timeout=5.0,
             max_retries=2
         )
-        self.assertTrue(result)
-        mock_run.assert_any_call(["nmcli", "device", "wifi", "rescan"], debug=False)
+    @patch("cafe_chameleon.network.sysfs._run")
+    @patch("os.path.exists")
+    @patch("builtins.open")
+    def test_get_carrier_status_operstate_dormant(self, mock_open, mock_exists, mock_run):
+        from cafe_chameleon.network.sysfs import get_carrier_status
+        # carrier file is 0, operstate is dormant
+        def side_exists(p):
+            return "operstate" in p or "carrier" in p
+        mock_exists.side_effect = side_exists
+
+        import io
+        def side_open(p, *args, **kwargs):
+            if "carrier" in p:
+                return io.StringIO("0\n")
+            if "operstate" in p:
+                return io.StringIO("dormant\n")
+            return io.StringIO("")
+        mock_open.side_effect = side_open
+
+        self.assertTrue(get_carrier_status("wlan0"))
+
+    @patch("cafe_chameleon.network.sysfs._run")
+    @patch("os.path.exists")
+    @patch("builtins.open")
+    def test_get_carrier_status_sysfs_carrier_1(self, mock_open, mock_exists, mock_run):
+        from cafe_chameleon.network.sysfs import get_carrier_status
+        mock_exists.side_effect = lambda p: "carrier" in p
+        import io
+        mock_open.side_effect = lambda p, *a, **kw: io.StringIO("1\n")
+        self.assertTrue(get_carrier_status("wlan0"))
 
 
 if __name__ == "__main__":

@@ -287,12 +287,13 @@ def monitor_and_auto_reconnect(
     # Initial reconnect check
     connected = get_connected_bssid(interface)
     carrier = get_carrier_status(interface)
-    if not carrier or not connected or (connected.upper() != bssid.upper()):
+    target_bssid = bssid
+    if not carrier or not connected or (connected.upper() != target_bssid.upper()):
         log_wait("Establishing initial connection...")
         perform_reconnect(
             profile=profile,
             interface=interface,
-            bssid=bssid,
+            bssid=target_bssid,
             mac=mac,
             local_ip=local_ip,
             netmask=netmask,
@@ -303,14 +304,17 @@ def monitor_and_auto_reconnect(
             timeout=timeout,
             max_retries=max_retries
         )
+        time.sleep(1.0)
 
     # Start background GARP heartbeat and pin gateway neighbor
     garp_stop_event = None
     if gateway and local_ip:
-        garp_stop_event = start_background_garp(interface, local_ip, gateway, interval=1.5)
+        garp_stop_event = start_background_garp(interface, local_ip, gateway, interval=2.5)
     if gateway and gateway_mac:
         pin_gateway_neighbor(gateway, gateway_mac, interface)
 
+    carrier_failures = 0
+    bssid_failures = 0
     consecutive_failures = 0
 
     try:
@@ -318,33 +322,83 @@ def monitor_and_auto_reconnect(
             time.sleep(check_interval)
             carrier = get_carrier_status(interface)
             current_bssid = get_connected_bssid(interface)
-            bssid_match = bool(current_bssid and current_bssid.upper() == bssid.upper())
 
-            # 1. Physical Layer 2 link check: If carrier dropped or BSSID changed -> immediate Hard Reconnect
-            if not carrier or not bssid_match:
-                if not carrier:
-                    log_warning("Carrier link lost on interface.")
+            # 1. Physical Layer 2 link check with debounce / hysteresis
+            if not carrier:
+                carrier_failures += 1
+                if carrier_failures == 1:
+                    log_warning("Transient carrier drop detected (evaluating stability)...")
+                    continue
                 else:
-                    log_warning(f"BSSID disconnected or changed (Current: {current_bssid or 'None'}).")
-                log_wait("Auto-reconnecting to network...")
-                perform_reconnect(
-                    profile=profile,
-                    interface=interface,
-                    bssid=bssid,
-                    mac=mac,
-                    local_ip=local_ip,
-                    netmask=netmask,
-                    broadcast=broadcast,
-                    gateway=gateway,
-                    gateway_mac=gateway_mac,
-                    enable_deauth=enable_deauth,
-                    timeout=timeout,
-                    max_retries=max_retries
-                )
-                consecutive_failures = 0
-                continue
+                    log_warning("Carrier link lost on interface.")
+                    log_wait("Auto-reconnecting to network...")
+                    perform_reconnect(
+                        profile=profile,
+                        interface=interface,
+                        bssid=target_bssid,
+                        mac=mac,
+                        local_ip=local_ip,
+                        netmask=netmask,
+                        broadcast=broadcast,
+                        gateway=gateway,
+                        gateway_mac=gateway_mac,
+                        enable_deauth=enable_deauth,
+                        timeout=timeout,
+                        max_retries=max_retries
+                    )
+                    carrier_failures = 0
+                    bssid_failures = 0
+                    consecutive_failures = 0
+                    time.sleep(2.0)
+                    continue
+            else:
+                carrier_failures = 0
 
-            # 2. Layer 3 / Internet reachability check (Hysteresis & Soft Healing)
+            # 2. BSSID match check with same-network roam tolerance
+            bssid_match = bool(current_bssid and current_bssid.upper() == target_bssid.upper())
+            if not bssid_match:
+                # Check if we roamed to another BSSID on the same network while keeping healthy internet
+                internet_roam_ok = has_internet(
+                    timeout=1.0,
+                    check_speed=False,
+                    gateway_ip=gateway,
+                    interface=interface,
+                    ping_gateway=False
+                )
+                if current_bssid and internet_roam_ok:
+                    log_step(f"Wi-Fi roamed to AP {current_bssid.upper()} (connection healthy).")
+                    target_bssid = current_bssid.upper()
+                    bssid_failures = 0
+                else:
+                    bssid_failures += 1
+                    if bssid_failures == 1:
+                        log_warning(f"BSSID disconnected or changed (Current: {current_bssid or 'None'}). Evaluating...")
+                        continue
+                    else:
+                        log_warning(f"BSSID disconnected or changed (Current: {current_bssid or 'None'}).")
+                        log_wait("Auto-reconnecting to network...")
+                        perform_reconnect(
+                            profile=profile,
+                            interface=interface,
+                            bssid=target_bssid,
+                            mac=mac,
+                            local_ip=local_ip,
+                            netmask=netmask,
+                            broadcast=broadcast,
+                            gateway=gateway,
+                            gateway_mac=gateway_mac,
+                            enable_deauth=enable_deauth,
+                            timeout=timeout,
+                            max_retries=max_retries
+                        )
+                        bssid_failures = 0
+                        consecutive_failures = 0
+                        time.sleep(2.0)
+                        continue
+            else:
+                bssid_failures = 0
+
+            # 3. Layer 3 / Internet reachability check (Hysteresis & Soft Healing)
             internet_ok = has_internet(
                 timeout=1.0,
                 check_speed=False,
@@ -377,7 +431,7 @@ def monitor_and_auto_reconnect(
                         perform_reconnect(
                             profile=profile,
                             interface=interface,
-                            bssid=bssid,
+                            bssid=target_bssid,
                             mac=mac,
                             local_ip=local_ip,
                             netmask=netmask,
@@ -389,6 +443,7 @@ def monitor_and_auto_reconnect(
                             max_retries=max_retries
                         )
                         consecutive_failures = 0
+                        time.sleep(2.0)
     except KeyboardInterrupt:
         log_info("\nAuto-reconnect monitoring stopped by user (Ctrl+C).")
         return True
