@@ -86,6 +86,9 @@ def hijack(
                 send_gratuitous_arp(interface, ip, gateway)
 
             try:
+                # Allow a brief moment for kernel ARP & network routing state to stabilize
+                time.sleep(0.1)
+
                 start_time = time.time()
                 verified = False
                 last_mac_ok, last_ip_ok, last_conn_ok = False, False, False
@@ -145,6 +148,7 @@ def hijack(
             finally:
                 if garp_stop_event:
                     garp_stop_event.set()
+
 
             if attempt < max_retries:
                 time.sleep(0.5)

@@ -1,12 +1,11 @@
 """
-cafe_chameleon.network.internet.gateway - High-speed gateway ping & pong detection.
+cafe_chameleon.network.internet.gateway - High-speed, guaranteed gateway ping & pong reachability detection.
 """
 
 import re
 import time
 import socket
 import struct
-
 import ipaddress
 
 from cafe_chameleon.utils.process import _run
@@ -24,7 +23,6 @@ def _is_valid_ip(ip_str: str | None) -> bool:
         return ip.version == 4 and not ip.is_unspecified and not ip.is_multicast and str(ip) != "255.255.255.255"
     except (ValueError, Exception):
         return False
-
 
 
 def get_default_gateway_ip(interface: str | None = None) -> str | None:
@@ -66,6 +64,72 @@ def get_default_gateway_ip(interface: str | None = None) -> str | None:
     return None
 
 
+def check_gateway_neighbor_table(gateway_ip: str, interface: str | None = None) -> bool:
+    """
+    Inspects kernel ARP/Neighbor table (/proc/net/arp and 'ip neigh') to verify
+    if the gateway has an active, resolved Layer 2 MAC entry.
+    """
+    if not gateway_ip or not _is_valid_ip(gateway_ip):
+        return False
+
+    try:
+        with open("/proc/net/arp", "r") as f:
+            for line in f.readlines()[1:]:
+                parts = line.strip().split()
+                if len(parts) >= 4 and parts[0] == gateway_ip:
+                    if interface and parts[5] != interface:
+                        continue
+                    mac = parts[3].lower()
+                    if mac and mac not in ("00:00:00:00:00:00", "ff:ff:ff:ff:ff:ff") and not mac.startswith("00:00:00"):
+                        return True
+    except Exception:
+        pass
+
+    try:
+        cmd = ["ip", "neigh", "show", gateway_ip]
+        if interface:
+            cmd.extend(["dev", interface])
+        rc, out = _run(cmd, debug=False, timeout=1.0)
+        if rc == 0 and out:
+            lower = out.lower()
+            if any(state in lower for state in ("reachable", "delay", "stale", "permanent")) and "incomplete" not in lower:
+                return True
+    except Exception:
+        pass
+
+    return False
+
+
+def _probe_gateway_tcp(gateway_ip: str, ports: list[int] | None = None, timeout: float = 0.4) -> bool:
+    """
+    Fast Layer 4 TCP SYN probe to common gateway ports (DNS 53, HTTP 80, HTTPS 443, Router 8080).
+    A successful SYN-ACK or RST (Connection Refused) packet definitively proves bidirectional
+    Layer 2 + Layer 3 gateway reachability even if ICMP Echo is blocked.
+    """
+    if not gateway_ip or not _is_valid_ip(gateway_ip):
+        return False
+
+    check_ports = ports or [53, 80, 443, 8080]
+    for port in check_ports:
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.settimeout(timeout)
+            try:
+                s.connect((gateway_ip, port))
+                s.close()
+                return True
+            except ConnectionRefusedError:
+                # RST received: Gateway responded at Layer 3/4!
+                s.close()
+                return True
+            except (socket.timeout, OSError):
+                s.close()
+        except Exception:
+            pass
+
+    return False
+
+
 def ping_gateway_once(gateway_ip: str, interface: str | None = None, timeout: float = 1.0) -> bool:
     """
     Sends a single ICMP echo request to the gateway with numeric output.
@@ -86,7 +150,7 @@ def ping_gateway_once(gateway_ip: str, interface: str | None = None, timeout: fl
 
 def arp_ping_gateway_once(gateway_ip: str, interface: str | None = None, timeout: float = 1.0) -> bool:
     """
-    Fallback Layer 2 ARP probe to detect if the gateway responds to ARP requests,
+    Fallback Layer 2 ARP and TCP reachability probe to detect if the gateway responds,
     guarding against gateways that actively drop ICMP Echo Requests.
     """
     if not gateway_ip or not _is_valid_ip(gateway_ip):
@@ -103,20 +167,11 @@ def arp_ping_gateway_once(gateway_ip: str, interface: str | None = None, timeout
         return True
 
     # Also check /proc/net/arp / kernel neighbor table
-    try:
-        with open("/proc/net/arp", "r") as f:
-            for line in f.readlines()[1:]:
-                parts = line.strip().split()
-                if len(parts) >= 4 and parts[0] == gateway_ip:
-                    if interface and parts[5] != interface:
-                        continue
-                    mac = parts[3].lower()
-                    if mac and mac != "00:00:00:00:00:00" and not mac.startswith("00:00:00"):
-                        return True
-    except Exception:
-        pass
+    if check_gateway_neighbor_table(gateway_ip, interface=interface):
+        return True
 
-    return False
+    # Also check TCP reachability on router ports
+    return _probe_gateway_tcp(gateway_ip, timeout=0.3)
 
 
 def wait_for_gateway_pong(
@@ -131,7 +186,7 @@ def wait_for_gateway_pong(
     The exact millisecond a pong is received (confirming bidirectional Layer 2 / Layer 3 connectivity),
     this function returns True immediately.
     If no pong is received within the timeout window, tests ARP fallback if enabled.
-    If both fail, returns False.
+    If all probes fail, returns False.
     """
     resolved_ip = gateway_ip or get_default_gateway_ip(interface)
     if not resolved_ip:
@@ -139,7 +194,7 @@ def wait_for_gateway_pong(
         return True
 
     start_time = time.time()
-    trace(f"[FEATURE] Initiating gateway pong verification on {resolved_ip} (Timeout: {timeout}s, Interface: {interface or 'Auto'})")
+    trace(f"[FEATURE] Initiating gateway reachability verification on {resolved_ip} (Timeout: {timeout}s, Interface: {interface or 'Auto'})")
 
     while time.time() - start_time < timeout:
         remaining = timeout - (time.time() - start_time)
@@ -147,11 +202,12 @@ def wait_for_gateway_pong(
 
         if ping_gateway_once(resolved_ip, interface=interface, timeout=probe_timeout):
             elapsed_ms = (time.time() - start_time) * 1000
-            trace(f"[FEATURE] Gateway {resolved_ip} pong received in {elapsed_ms:.1f}ms (device connected successfully to network)")
+            trace(f"[FEATURE] Gateway {resolved_ip} ICMP pong received in {elapsed_ms:.1f}ms (device connected successfully)")
             return True
 
         time.sleep(poll_interval)
 
+    # If ICMP timed out, execute Layer 2 ARP fallback
     if allow_arp_fallback:
         trace(f"[FEATURE] Gateway {resolved_ip} ICMP ping timed out; trying Layer 2 ARP probe fallback...")
         if arp_ping_gateway_once(resolved_ip, interface=interface, timeout=1.0):

@@ -6,3 +6,6 @@ todo.md
 *.log
 blacklist.txt
 .codegraph/
+highValueMacIgnoreMeInGithubCommits.txt
+tempCommands.txt
+

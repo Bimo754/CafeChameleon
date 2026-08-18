@@ -7,6 +7,7 @@ from .bssid import scan_bssids_for_ssid, scan_nearby_wifi_networks, get_connecte
 from .ui_status import select_bssid_interactively, show_status, show_wifi_scan, show_mac
 from .restore import restore_auto, reset_mac, release_interface, change_mac
 from .reconnect import reconnect_wifi
+from .connectivity import get_nmcli_connectivity
 
 __all__ = [
     "get_active_profile",
@@ -27,5 +28,7 @@ __all__ = [
     "reset_mac",
     "release_interface",
     "change_mac",
-    "reconnect_wifi"
+    "reconnect_wifi",
+    "get_nmcli_connectivity"
 ]
+
