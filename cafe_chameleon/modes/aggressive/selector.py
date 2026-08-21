@@ -91,7 +91,8 @@ def display_and_select_bssid(
     bssids: list[dict],
     air_clients_map: dict,
     select_requested: bool | str = False,
-    prioritize_clients: bool = False
+    prioritize_clients: bool = False,
+    is_air_only: bool = False
 ) -> list[dict]:
     """Sorts BSSIDs from strongest signal (or score if prioritized), renders table, and handles selection."""
     if not bssids:
@@ -109,8 +110,9 @@ def display_and_select_bssid(
         )
 
     if not select_requested:
-        table_output = format_bssid_table(bssids, air_clients_map, "AUTO-RANKED BSSID TARGETS")
-        log_main(table_output, clear=True)
+        if not is_air_only:
+            table_output = format_bssid_table(bssids, air_clients_map, "AUTO-RANKED BSSID TARGETS")
+            log_main(table_output, clear=True)
         return bssids
 
     # If direct selection string was provided via CLI (e.g. -s 1,2,7 or -s 1-10,12)
