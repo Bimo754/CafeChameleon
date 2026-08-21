@@ -520,35 +520,65 @@ def sniff_air_clients(
         )
         timer.start()
 
-        sniff_timeout = None if effective_duration == 0 else effective_duration
+        bpf_filter = "wlan type data or (wlan type mgt and not wlan type mgt subtype beacon)"
         try:
-            try:
-                from scapy.config import conf
-                if hasattr(conf, "ifaces") and hasattr(conf.ifaces, "reload"):
-                    conf.ifaces.reload()
-            except Exception:
-                pass
+            from scapy.config import conf
+            if hasattr(conf, "ifaces") and hasattr(conf.ifaces, "reload"):
+                conf.ifaces.reload()
+        except Exception:
+            pass
 
-            bpf_filter = "wlan type data or (wlan type mgt and not wlan type mgt subtype beacon)"
-            try:
-                sniff(
-                    iface=mon_iface,
-                    filter=bpf_filter,
-                    timeout=sniff_timeout,
-                    prn=air_packet_callback,
-                    stop_filter=stop_check if (trigger_on_active and effective_duration == 0) else None,
-                    store=False
-                )
-            except (AirSkipInterrupt, KeyboardInterrupt):
-                raise
-            except Exception:
-                sniff(
-                    iface=mon_iface,
-                    timeout=sniff_timeout,
-                    prn=air_packet_callback,
-                    stop_filter=stop_check if (trigger_on_active and effective_duration == 0) else None,
-                    store=False
-                )
+        try:
+            if trigger_on_active and effective_duration == 0:
+                while True:
+                    if active_triggered_event.is_set():
+                        if countdown_deadline[0] is not None and time.time() >= countdown_deadline[0]:
+                            break
+                        rem_chunk = max(0.1, min(1.0, countdown_deadline[0] - time.time())) if countdown_deadline[0] else 1.0
+                    else:
+                        rem_chunk = 1.0
+
+                    try:
+                        sniff(
+                            iface=mon_iface,
+                            filter=bpf_filter,
+                            timeout=rem_chunk,
+                            prn=air_packet_callback,
+                            stop_filter=stop_check,
+                            store=False
+                        )
+                    except (AirSkipInterrupt, KeyboardInterrupt):
+                        raise
+                    except Exception:
+                        sniff(
+                            iface=mon_iface,
+                            timeout=rem_chunk,
+                            prn=air_packet_callback,
+                            stop_filter=stop_check,
+                            store=False
+                        )
+            else:
+                sniff_timeout = None if effective_duration == 0 else effective_duration
+                stop_flt = stop_check if (trigger_on_active and effective_duration == 0) else None
+                try:
+                    sniff(
+                        iface=mon_iface,
+                        filter=bpf_filter,
+                        timeout=sniff_timeout,
+                        prn=air_packet_callback,
+                        stop_filter=stop_flt,
+                        store=False
+                    )
+                except (AirSkipInterrupt, KeyboardInterrupt):
+                    raise
+                except Exception:
+                    sniff(
+                        iface=mon_iface,
+                        timeout=sniff_timeout,
+                        prn=air_packet_callback,
+                        stop_filter=stop_flt,
+                        store=False
+                    )
         finally:
             timer.stop()
     except (AirSkipInterrupt, KeyboardInterrupt):

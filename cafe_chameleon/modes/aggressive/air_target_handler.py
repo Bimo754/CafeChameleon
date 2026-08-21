@@ -238,6 +238,7 @@ def test_air_client_targets(
 
     set_hijack_status(ip=None, mac=None, technique="Idle")
 
+    wait_for_carrier(interface, timeout=3.0)
     has_acc = has_internet()
     if getattr(args, "force", False):
         if ask_restore(default_restore=not has_acc):

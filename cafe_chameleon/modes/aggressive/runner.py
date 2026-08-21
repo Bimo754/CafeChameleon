@@ -134,16 +134,17 @@ def run_aggressive(args) -> bool:
         cycle = 1
         last_skip_time = 0
         persisted_bssid_targets = None
+        tried_macs = set()
 
         while True:
-            tried_macs = set()
-
             if profile:
                 _run(["nmcli", "connection", "modify", profile, "802-11-wireless.bssid", ""], debug=False)
                 _run(["nmcli", "connection", "modify", profile, "802-11-wireless.cloned-mac-address", ""], debug=False)
 
             if is_monitor_mode_active(interface):
                 set_managed_mode(interface)
+                wait_for_carrier(interface, timeout=3.0)
+                time.sleep(1.0)
 
             if has_internet():
                 if not getattr(args, "force", False):
@@ -192,6 +193,8 @@ def run_aggressive(args) -> bool:
             )
             if is_monitor_mode_active(interface):
                 set_managed_mode(interface)
+                wait_for_carrier(interface, timeout=3.0)
+                time.sleep(1.0)
             set_main_status(status=f"Active Exploration [#{cycle}]")
 
             any_bssid_mode = bool(getattr(args, "any_bssid", False) is True)
@@ -239,6 +242,14 @@ def run_aggressive(args) -> bool:
                 new_air_clients = filter_valid_air_clients(
                     bssid_air_clients, tried_macs, auto_params, bssids, air_clients_map=air_clients_map, active_only=True
                 )
+
+                if not new_air_clients and bssid_air_clients:
+                    # If all active clients were previously tried in earlier cycles, reset tried_macs to allow re-testing
+                    log_main(f"  [i] All active targets on BSSID {target_bssid} were previously attempted. Resetting tried target history...")
+                    tried_macs.clear()
+                    new_air_clients = filter_valid_air_clients(
+                        bssid_air_clients, tried_macs, auto_params, bssids, air_clients_map=air_clients_map, active_only=True
+                    )
 
                 if not new_air_clients:
                     continue
@@ -302,7 +313,8 @@ def run_aggressive(args) -> bool:
             cycle += 1
             if is_monitor_mode_active(interface):
                 set_managed_mode(interface)
-            time.sleep(1.0)
+            wait_for_carrier(interface, timeout=3.0)
+            time.sleep(1.5)
 
     # 2. Discover BSSIDs for the SSID
     bssids = scan_bssids_for_ssid(ssid)

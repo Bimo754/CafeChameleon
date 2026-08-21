@@ -134,6 +134,14 @@ def hijack(
 
                     has_base = has_internet(timeout=1.0, check_speed=False, gateway_ip=gateway, interface=interface, ping_gateway=False)
                     if not has_base:
+                        # Give adapter network stack 1.5s grace period for ARP/DNS routing to settle
+                        time.sleep(1.5)
+                        has_base = has_internet(timeout=1.0, check_speed=False, gateway_ip=gateway, interface=interface, ping_gateway=False)
+
+                    if not has_base:
+                        if attempt < max_retries:
+                            log_hijack("\033[93m[*] Target DNS/Internet pending, retrying attempt...\033[0m")
+                            continue
                         log_hijack("\033[91m[-] Target unreachable (DNS/Internet failed)\033[0m")
                         return False
 
@@ -143,6 +151,9 @@ def hijack(
                         return True
                     else:
                         speed_desc = f"{speed_val:.1f} KB/s" if speed_val > 0 else "0 KB/s"
+                        if attempt < max_retries:
+                            log_hijack(f"\033[93m[*] Connection throttled ({speed_desc}), retrying attempt...\033[0m")
+                            continue
                         log_hijack(f"\033[91m[-] Connection slow or throttled ({speed_desc})\033[0m")
                         return False
             finally:
