@@ -80,3 +80,6 @@ def nmap_scan_subnet(
         pass
 
     return [{"ip": ip, "mac": mac} for ip, mac in discovered.items()]
+
+
+scan_subnet = nmap_scan_subnet

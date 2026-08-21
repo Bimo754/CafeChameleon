@@ -72,7 +72,9 @@ def _probe_http_endpoint(endpoint: dict, timeout: float = 1.5) -> tuple[bool, bo
         req = urllib.request.Request(url, headers=HTTP_HEADERS)
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             status = getattr(resp, "status", getattr(resp, "code", 200))
-            final_url = resp.geturl() if hasattr(resp, "geturl") else url
+            geturl_fn = getattr(resp, "geturl", None)
+            raw_url = geturl_fn() if callable(geturl_fn) else url
+            final_url = raw_url if isinstance(raw_url, str) else url
 
             # Detect HTTP redirect to captive portal login page
             is_redirected = False
@@ -87,16 +89,22 @@ def _probe_http_endpoint(endpoint: dict, timeout: float = 1.5) -> tuple[bool, bo
 
             elif target_type == "body_match":
                 if status == 200 and not is_redirected:
-                    body = resp.read(256).decode("utf-8", errors="ignore").strip()
+                    raw_body = resp.read(256)
+                    body = ""
+                    if isinstance(raw_body, (bytes, bytearray)):
+                        body = raw_body.decode("utf-8", errors="ignore").strip()
+                    elif isinstance(raw_body, str):
+                        body = raw_body.strip()
+
                     if token and token in body:
                         return True, False, provider
                     else:
-                        # Body does not contain token -> likely intercepted captive portal HTML
+                        # Body does not contain token -> intercepted captive portal HTML
                         return False, True, final_url
                 elif is_redirected or status in (301, 302, 303, 307):
                     return False, True, final_url
 
-    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError) as e:
+    except Exception as e:
         trace(f"[FEATURE] Endpoint probe {provider} failed: {e}")
 
     return False, False, None
@@ -124,20 +132,32 @@ def verify_internet_connectivity(
     if ping_gateway or gateway_ip:
         gw_ok = wait_for_gateway_pong(gateway_ip=gateway_ip, interface=interface, timeout=gateway_timeout)
         res.gateway_reachable = gw_ok
-        if not gw_ok:
+        if not gw_ok and strict:
             res.state = ConnectivityState.NO_GATEWAY
             res.latency_ms = (time.time() - start_t) * 1000
             return res
     else:
         res.gateway_reachable = True
 
-    # 2. Native NetworkManager connectivity check (optional fast signal)
-    try:
-        from cafe_chameleon.network.nmcli.connectivity import get_nmcli_connectivity
-        nm_state = get_nmcli_connectivity(force_check=False, timeout=0.5)
-        res.nmcli_state = nm_state
-    except Exception:
-        pass
+    # 2. Fast-track non-strict mode check via raw sockets
+    if not strict:
+        socket_ok = False
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(PUBLIC_DNS_ENDPOINTS)) as executor:
+            sock_futures = [executor.submit(_probe_socket, ep, min(1.0, timeout)) for ep in PUBLIC_DNS_ENDPOINTS]
+            for future in concurrent.futures.as_completed(sock_futures):
+                if future.result():
+                    socket_ok = True
+                    break
+        if socket_ok:
+            res.is_authenticated = True
+            res.state = ConnectivityState.FULL_INTERNET
+            if check_speed:
+                is_fast, speed_val = test_internet_speed(timeout=1.5, min_speed_kbps=min_speed_kbps)
+                res.speed_kbps = speed_val
+                if not is_fast:
+                    res.state = ConnectivityState.LIMITED
+                    res.is_authenticated = False
+            return res
 
     # 3. Concurrent Multi-Provider HTTP 204 & Captive Portal Probing
     http_timeout = max(0.8, timeout)
@@ -168,19 +188,9 @@ def verify_internet_connectivity(
     res.portal_url = portal_url
     res.http_verified_endpoint = verified_provider
 
-    # 4. Supplementary DNS and Low-Level Socket Probing
+    # 4. Supplementary Low-Level Socket and DNS Probing
     if not portal_passed:
-        # Check standard DNS resolution
-        dns_ok = False
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(DNS_TEST_DOMAINS)) as executor:
-            dns_futures = [executor.submit(_probe_dns_resolution, dom, min(1.0, timeout)) for dom in DNS_TEST_DOMAINS]
-            for future in concurrent.futures.as_completed(dns_futures):
-                if future.result():
-                    dns_ok = True
-                    break
-        res.dns_working = dns_ok
-
-        # Check raw socket connectivity
+        # Fast raw socket check
         socket_ok = False
         with concurrent.futures.ThreadPoolExecutor(max_workers=len(PUBLIC_DNS_ENDPOINTS)) as executor:
             sock_futures = [executor.submit(_probe_socket, ep, min(1.0, timeout)) for ep in PUBLIC_DNS_ENDPOINTS]
@@ -189,19 +199,35 @@ def verify_internet_connectivity(
                     socket_ok = True
                     break
 
-        if dns_ok or socket_ok or (res.nmcli_state == "full"):
-            if not portal_detected:
-                # If non-strict, we can accept DNS/socket pass
-                if not strict:
-                    portal_passed = True
-                    res.is_authenticated = True
+        if socket_ok or (res.nmcli_state == "full"):
+            if not portal_detected and not strict:
+                portal_passed = True
+                res.is_authenticated = True
+
+        if not portal_passed:
+            dns_ok = False
+            with concurrent.futures.ThreadPoolExecutor(max_workers=len(DNS_TEST_DOMAINS)) as executor:
+                dns_futures = [executor.submit(_probe_dns_resolution, dom, min(1.0, timeout)) for dom in DNS_TEST_DOMAINS]
+                for future in concurrent.futures.as_completed(dns_futures):
+                    if future.result():
+                        dns_ok = True
+                        break
+            res.dns_working = dns_ok
+            if dns_ok and not portal_detected and not strict:
+                portal_passed = True
+                res.is_authenticated = True
 
     # 5. Determine State
-    if portal_passed or (res.nmcli_state == "full" and not portal_detected):
+    if portal_passed:
         res.state = ConnectivityState.FULL_INTERNET
         res.is_authenticated = True
+    elif not res.gateway_reachable:
+        res.state = ConnectivityState.NO_GATEWAY
     elif portal_detected or (res.nmcli_state == "portal"):
         res.state = ConnectivityState.CAPTIVE_PORTAL
+    elif res.nmcli_state == "full":
+        res.state = ConnectivityState.FULL_INTERNET
+        res.is_authenticated = True
     elif res.dns_working:
         res.state = ConnectivityState.LIMITED
     else:
@@ -233,111 +259,15 @@ def has_internet(
     """
     Guaranteed multi-stage internet verification check to guard against fake internet,
     captive portal walled gardens, and severely throttled connections.
-    Optionally pings gateway first and triggers internet checks the millisecond a pong is received.
     """
-    if ping_gateway or gateway_ip:
-        gw_ok = wait_for_gateway_pong(gateway_ip=gateway_ip, interface=interface, timeout=gateway_timeout)
-        # If gateway pong succeeds, we proceed to fast socket / HTTP check.
-        # If gateway pong fails, we do not short-circuit to False immediately;
-        # we allow socket & HTTP probes to run in case gateway drops ICMP packets.
-    else:
-        gw_ok = True
-
-    # Low-level socket check for fast fallback compatibility
-    probe_timeout = min(timeout, 0.8)
-    socket_passed = False
-    with concurrent.futures.ThreadPoolExecutor(max_workers=len(PUBLIC_DNS_ENDPOINTS)) as executor:
-        futures = [executor.submit(_probe_socket, ep, probe_timeout) for ep in PUBLIC_DNS_ENDPOINTS]
-        for future in concurrent.futures.as_completed(futures):
-            if future.result():
-                socket_passed = True
-                break
-
-    # If non-strict mode and sockets pass, verify speed if requested
-    if not strict:
-        if socket_passed:
-            if check_speed:
-                is_fast, _ = test_internet_speed(timeout=1.2, min_speed_kbps=min_speed_kbps)
-                return is_fast
-            return True
-
-    # Multi-provider captive portal & HTTP 204 session verification
-    portal_passed = False
-
-    # Test 2A: Google 204 No Content check
-    try:
-        req = urllib.request.Request("http://connectivitycheck.gstatic.com/generate_204", headers=HTTP_HEADERS)
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            if getattr(resp, "status", getattr(resp, "code", 0)) == 204:
-                portal_passed = True
-    except (urllib.error.URLError, TimeoutError, OSError):
-        pass
-
-    # Test 2B: Cloudflare 204
-    if not portal_passed:
-        try:
-            req = urllib.request.Request("http://cp.cloudflare.com/generate_204", headers=HTTP_HEADERS)
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                if getattr(resp, "status", getattr(resp, "code", 0)) == 204:
-                    portal_passed = True
-        except (urllib.error.URLError, TimeoutError, OSError):
-            pass
-
-    # Test 2C: Microsoft NCSI Verification Check
-    if not portal_passed:
-        try:
-            req = urllib.request.Request("http://www.msftncsi.com/ncsi.txt", headers={"User-Agent": "Microsoft NCSI"})
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                if getattr(resp, "status", getattr(resp, "code", 0)) == 200:
-                    body = resp.read(32).decode("utf-8", errors="ignore").strip()
-                    if "Microsoft NCSI" in body:
-                        portal_passed = True
-        except (urllib.error.URLError, TimeoutError, OSError):
-            pass
-
-    # Test 2D: Apple Hotspot Detect Check
-    if not portal_passed:
-        try:
-            req = urllib.request.Request("http://captive.apple.com/hotspot-detect.html", headers=HTTP_HEADERS)
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                if getattr(resp, "status", getattr(resp, "code", 0)) == 200:
-                    body = resp.read(64).decode("utf-8", errors="ignore").strip()
-                    if "Success" in body:
-                        portal_passed = True
-        except (urllib.error.URLError, TimeoutError, OSError):
-            pass
-
-    # Test 2E: Ubuntu / Arch / Linux ping probe
-    if not portal_passed:
-        try:
-            req = urllib.request.Request("http://connectivity-check.ubuntu.com/", headers=HTTP_HEADERS)
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                if getattr(resp, "status", getattr(resp, "code", 0)) == 200:
-                    body = resp.read(64).decode("utf-8", errors="ignore").strip()
-                    if "NetworkManager" in body or "online" in body:
-                        portal_passed = True
-        except (urllib.error.URLError, TimeoutError, OSError):
-            pass
-
-    # Fallback to general verify_internet_connectivity if needed
-    if not portal_passed and socket_passed:
-        # Check if any other endpoint passed
-        verify_res = verify_internet_connectivity(
-            timeout=timeout,
-            strict=strict,
-            check_speed=False,
-            gateway_ip=None,
-            interface=interface,
-            ping_gateway=False
-        )
-        if verify_res.is_authenticated:
-            portal_passed = True
-
-    if not portal_passed:
-        return False
-
-    if check_speed:
-        is_fast, _ = test_internet_speed(timeout=1.2, min_speed_kbps=min_speed_kbps)
-        return is_fast
-
-    return True
+    res = verify_internet_connectivity(
+        timeout=timeout,
+        strict=strict,
+        check_speed=check_speed,
+        min_speed_kbps=min_speed_kbps,
+        gateway_ip=gateway_ip,
+        interface=interface,
+        ping_gateway=ping_gateway,
+        gateway_timeout=gateway_timeout
+    )
+    return res.is_authenticated

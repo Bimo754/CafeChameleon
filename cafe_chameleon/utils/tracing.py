@@ -8,7 +8,7 @@ import traceback
 from typing import List
 
 from cafe_chameleon.config import TRACE_FILE
-from cafe_chameleon.utils.state import get_debug_tracing
+
 _TRACE_BUFFER: List[str] = []
 
 
@@ -26,6 +26,7 @@ def init_trace() -> None:
 
 def trace(msg: str) -> None:
     """Silently records a trace entry if tracing debug mode is active."""
+    from cafe_chameleon.utils.state import get_debug_tracing
     if not get_debug_tracing():
         return
 
@@ -52,6 +53,7 @@ def get_trace_filepath() -> str:
 
 def log_exception_to_trace(exc: Exception) -> None:
     """Logs an exception traceback to the trace file silently."""
+    from cafe_chameleon.utils.state import get_debug_tracing
     if not get_debug_tracing():
         return
     tb_str = traceback.format_exc()

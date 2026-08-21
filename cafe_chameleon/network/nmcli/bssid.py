@@ -6,6 +6,8 @@ import re
 import shutil
 import time
 
+from typing import Any
+
 from cafe_chameleon.models import BSSIDTarget
 from cafe_chameleon.utils.process import _run
 from cafe_chameleon.utils.tracing import trace
@@ -38,6 +40,20 @@ def dbm_to_signal_percentage(dbm: float) -> int:
     return max(0, min(100, int(2 * (dbm + 100))))
 
 
+def parse_signal_strength(val: Any) -> int:
+    """Safely extracts integer signal percentage from string or numeric value."""
+    if not val:
+        return 0
+    clean = DIGIT_REGEX.sub("", str(val))
+    return int(clean) if clean else 0
+
+
+def split_nmcli_escaped(line: str) -> list[str]:
+    r"""Splits a colon-delimited nmcli terse output line, respecting escaped colons (\:)."""
+    parts = re.split(r"(?<!\\):", line)
+    return [p.replace(r"\:", ":").strip() for p in parts]
+
+
 def trigger_wifi_rescan(target_ssid: str | None = None) -> None:
     """
     Triggers an active 802.11 Wi-Fi rescan via nmcli.
@@ -48,14 +64,10 @@ def trigger_wifi_rescan(target_ssid: str | None = None) -> None:
             rc, _ = _run(["nmcli", "device", "wifi", "rescan", "ssid", target_ssid], debug=False)
             if rc == 0:
                 return
-        except StopIteration:
-            raise
         except Exception:
             pass
     try:
         _run(["nmcli", "device", "wifi", "rescan"], debug=False)
-    except StopIteration:
-        raise
     except Exception:
         pass
 
@@ -65,20 +77,15 @@ def parse_nmcli_wifi_list_output(output: str, target_ssid: str | None = None) ->
     results = []
     seen = set()
     for line in output.splitlines():
-        if not line:
+        if not line.strip():
             continue
-        unescaped = line.replace(r"\:", "\x00")
-        parts = unescaped.split(":")
+        parts = split_nmcli_escaped(line)
         if len(parts) >= 6:
-            bssid = parts[0].replace("\x00", ":").strip()
-            ssid = parts[1].replace("\x00", ":").strip()
-            signal = parts[2].replace("\x00", ":").strip()
-            chan = parts[3].replace("\x00", ":").strip()
-            security = parts[4].replace("\x00", ":").strip()
-            active = parts[5].replace("\x00", ":").strip().lower() in ("yes", "*", "true")
-            bars = parts[6].replace("\x00", ":").strip() if len(parts) >= 7 else ""
-            mode = parts[7].replace("\x00", ":").strip() if len(parts) >= 8 else ""
-            rate = parts[8].replace("\x00", ":").strip() if len(parts) >= 9 else ""
+            bssid, ssid, signal, chan, security, active_str = parts[:6]
+            active = active_str.lower() in ("yes", "*", "true")
+            bars = parts[6] if len(parts) >= 7 else ""
+            mode = parts[7] if len(parts) >= 8 else ""
+            rate = parts[8] if len(parts) >= 9 else ""
 
             if target_ssid:
                 if ssid.lower() != target_ssid.lower() and target_ssid.lower() not in ssid.lower():
@@ -98,12 +105,8 @@ def parse_nmcli_wifi_list_output(output: str, target_ssid: str | None = None) ->
                     rate=rate
                 ))
         elif len(parts) == 5:
-            bssid = parts[0].replace("\x00", ":").strip()
-            ssid = parts[1].replace("\x00", ":").strip()
-            signal = parts[2].replace("\x00", ":").strip()
-            chan = parts[3].replace("\x00", ":").strip()
-            security = ""
-            active = parts[4].replace("\x00", ":").strip().lower() in ("yes", "*", "true")
+            bssid, ssid, signal, chan, active_str = parts
+            active = active_str.lower() in ("yes", "*", "true")
 
             if target_ssid:
                 if ssid.lower() != target_ssid.lower() and target_ssid.lower() not in ssid.lower():
@@ -116,7 +119,7 @@ def parse_nmcli_wifi_list_output(output: str, target_ssid: str | None = None) ->
                     ssid=ssid,
                     signal=signal,
                     chan=chan,
-                    security=security,
+                    security="",
                     active=active
                 ))
     return results
@@ -128,8 +131,6 @@ def query_nmcli_wifi_list(target_ssid: str | None = None) -> list[BSSIDTarget]:
         rc, out = _run(["nmcli", "-t", "-f", "BSSID,SSID,SIGNAL,CHAN,SECURITY,ACTIVE,BARS,MODE,RATE", "dev", "wifi", "list"], debug=False)
         if rc == 0 and out.strip():
             return parse_nmcli_wifi_list_output(out, target_ssid=target_ssid)
-    except StopIteration:
-        raise
     except Exception:
         pass
 
@@ -137,8 +138,6 @@ def query_nmcli_wifi_list(target_ssid: str | None = None) -> list[BSSIDTarget]:
         rc, out = _run(["nmcli", "-t", "-f", "BSSID,SSID,SIGNAL,CHAN,SECURITY,ACTIVE", "dev", "wifi", "list"], debug=False)
         if rc == 0 and out.strip():
             return parse_nmcli_wifi_list_output(out, target_ssid=target_ssid)
-    except StopIteration:
-        raise
     except Exception:
         pass
 
@@ -238,8 +237,6 @@ def query_iw_scan_dump(interface: str | None = None, target_ssid: str | None = N
         rc, out = _run(["iw", "dev", iface, "scan", "dump"], debug=False)
         if rc == 0 and out.strip():
             return parse_iw_scan_dump(out, target_ssid=target_ssid)
-    except StopIteration:
-        raise
     except Exception:
         pass
     return []
@@ -247,10 +244,6 @@ def query_iw_scan_dump(interface: str | None = None, target_ssid: str | None = N
 
 def merge_bssid_targets(target_map: dict[str, BSSIDTarget], new_targets: list[BSSIDTarget]) -> None:
     """Merges new BSSID targets into dictionary map preserving most complete properties."""
-    def parse_sig(val) -> int:
-        clean = DIGIT_REGEX.sub("", str(val))
-        return int(clean) if clean else 0
-
     for item in new_targets:
         if not item or not item.bssid:
             continue
@@ -259,7 +252,7 @@ def merge_bssid_targets(target_map: dict[str, BSSIDTarget], new_targets: list[BS
             target_map[key] = item
         else:
             existing = target_map[key]
-            if parse_sig(item.signal) > parse_sig(existing.signal):
+            if parse_signal_strength(item.signal) > parse_signal_strength(existing.signal):
                 existing.signal = item.signal
             if not existing.ssid and item.ssid:
                 existing.ssid = item.ssid
@@ -278,45 +271,25 @@ def merge_bssid_targets(target_map: dict[str, BSSIDTarget], new_targets: list[BS
 
 
 def scan_nearby_wifi_networks(target_ssid: str | None = None, rescan: bool = True) -> list[BSSIDTarget]:
-    """Scans and retrieves available nearby Wi-Fi BSSIDs and AP properties via nmcli and kernel BSS cache.
-
-    If target_ssid is specified, filters results to matching SSIDs (case-insensitive).
-    Performs multi-pass cumulative discovery to guarantee catching all transmitting BSSIDs.
-    """
+    """Scans and retrieves available nearby Wi-Fi BSSIDs and AP properties via nmcli and kernel BSS cache."""
     trace(f"[FEATURE] Scanning nearby Wi-Fi networks (target_ssid={target_ssid}, rescan={rescan})")
     accumulated: dict[str, BSSIDTarget] = {}
 
     if rescan:
         log_step("Scanning nearby Wi-Fi networks...")
         log_wait("Triggering Wi-Fi rescan...")
-        try:
-            trigger_wifi_rescan(target_ssid=target_ssid)
-        except StopIteration:
-            pass
+        trigger_wifi_rescan(target_ssid=target_ssid)
 
     # Pass 1: Query nmcli list and kernel BSS table
-    try:
-        nmcli_targets_1 = query_nmcli_wifi_list(target_ssid=target_ssid)
-        merge_bssid_targets(accumulated, nmcli_targets_1)
-    except StopIteration:
-        pass
-
-    try:
-        iw_targets_1 = query_iw_scan_dump(target_ssid=target_ssid)
-        merge_bssid_targets(accumulated, iw_targets_1)
-    except StopIteration:
-        pass
+    merge_bssid_targets(accumulated, query_nmcli_wifi_list(target_ssid=target_ssid))
+    merge_bssid_targets(accumulated, query_iw_scan_dump(target_ssid=target_ssid))
 
     # Pass 2: When rescanning, allow hardware radio sweep dwell and query again to accumulate late channels
     if rescan:
         try:
             time.sleep(0.8)
-            nmcli_targets_2 = query_nmcli_wifi_list(target_ssid=target_ssid)
-            merge_bssid_targets(accumulated, nmcli_targets_2)
-            iw_targets_2 = query_iw_scan_dump(target_ssid=target_ssid)
-            merge_bssid_targets(accumulated, iw_targets_2)
-        except StopIteration:
-            pass
+            merge_bssid_targets(accumulated, query_nmcli_wifi_list(target_ssid=target_ssid))
+            merge_bssid_targets(accumulated, query_iw_scan_dump(target_ssid=target_ssid))
         except Exception:
             pass
 
@@ -324,11 +297,7 @@ def scan_nearby_wifi_networks(target_ssid: str | None = None, rescan: bool = Tru
     if target_ssid:
         results = [item for item in results if item.ssid.lower() == target_ssid.lower() or target_ssid.lower() in item.ssid.lower()]
 
-    def parse_sig(item: BSSIDTarget) -> int:
-        clean = DIGIT_REGEX.sub("", str(item.signal))
-        return int(clean) if clean else 0
-
-    results.sort(key=lambda item: (parse_sig(item), item.ssid, item.bssid), reverse=True)
+    results.sort(key=lambda item: (parse_signal_strength(item.signal), item.ssid, item.bssid), reverse=True)
     return results
 
 
@@ -342,34 +311,17 @@ def scan_bssids_for_ssid(target_ssid: str) -> list[BSSIDTarget]:
     log_wait(f"Triggering directed Wi-Fi rescan for '{target_ssid}'...")
 
     accumulated: dict[str, BSSIDTarget] = {}
-
-    try:
-        trigger_wifi_rescan(target_ssid=target_ssid)
-    except StopIteration:
-        pass
+    trigger_wifi_rescan(target_ssid=target_ssid)
 
     # Pass 1: Query nmcli list and kernel BSS table
-    try:
-        nmcli_targets_1 = query_nmcli_wifi_list(target_ssid=target_ssid)
-        merge_bssid_targets(accumulated, nmcli_targets_1)
-    except StopIteration:
-        pass
-
-    try:
-        iw_targets_1 = query_iw_scan_dump(target_ssid=target_ssid)
-        merge_bssid_targets(accumulated, iw_targets_1)
-    except StopIteration:
-        pass
+    merge_bssid_targets(accumulated, query_nmcli_wifi_list(target_ssid=target_ssid))
+    merge_bssid_targets(accumulated, query_iw_scan_dump(target_ssid=target_ssid))
 
     # Pass 2: Allow radio sweep dwell and query again to accumulate late channels
     try:
         time.sleep(0.8)
-        nmcli_targets_2 = query_nmcli_wifi_list(target_ssid=target_ssid)
-        merge_bssid_targets(accumulated, nmcli_targets_2)
-        iw_targets_2 = query_iw_scan_dump(target_ssid=target_ssid)
-        merge_bssid_targets(accumulated, iw_targets_2)
-    except StopIteration:
-        pass
+        merge_bssid_targets(accumulated, query_nmcli_wifi_list(target_ssid=target_ssid))
+        merge_bssid_targets(accumulated, query_iw_scan_dump(target_ssid=target_ssid))
     except Exception:
         pass
 
@@ -378,11 +330,7 @@ def scan_bssids_for_ssid(target_ssid: str) -> list[BSSIDTarget]:
         if item.ssid.lower() == target_ssid.lower()
     ]
 
-    def parse_sig(item: BSSIDTarget) -> int:
-        clean = DIGIT_REGEX.sub("", str(item.signal))
-        return int(clean) if clean else 0
-
-    results.sort(key=parse_sig, reverse=True)
+    results.sort(key=lambda item: parse_signal_strength(item.signal), reverse=True)
     return results
 
 
@@ -395,15 +343,11 @@ def get_bssid_security(target_bssid: str) -> str | None:
         for line in out.splitlines():
             if not line:
                 continue
-            unescaped = line.replace(r"\:", "\x00")
-            parts = unescaped.split(":")
+            parts = split_nmcli_escaped(line)
             if len(parts) >= 2:
-                b_mac = parts[0].replace("\x00", ":").strip()
-                sec = parts[1].replace("\x00", ":").strip()
+                b_mac, sec = parts[:2]
                 if b_mac.lower() == target_bssid.lower():
                     return sec
-    except StopIteration:
-        raise
     except Exception:
         pass
 
