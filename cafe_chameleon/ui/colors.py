@@ -57,10 +57,10 @@ def colorize_brackets(text: str) -> str:
 
 def _log(tag: str, color_code: str, text: str, end: str | None = None, start: str = "", force: bool = False) -> None:
     """Internal helper for clean, modern colored logging."""
-    from cafe_chameleon.utils.state import get_quiet, get_verbose, is_launcher_mode
+    from cafe_chameleon.utils.state import get_quiet, get_verbose
     if get_quiet():
         return
-    if is_launcher_mode() and not force and not get_verbose():
+    if not force and not get_verbose():
         return
     prefix = f"{start}{BRACKET_OPEN}{BOLD}{color_code}{tag}{RESET}{BRACKET_CLOSE} "
     formatted_text = colorize_brackets(text)

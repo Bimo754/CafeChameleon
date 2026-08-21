@@ -77,14 +77,14 @@ def get_attack_mac(interface: str) -> str:
 
 def set_mac_address(interface: str, mac: str, profile: str | None = None) -> bool:
     """
-    Changes the MAC address of an interface using NetworkManager's nmcli cloned-mac-address property.
-    If NetworkManager profile is not provided, attempts to auto-detect the active Wi-Fi profile.
-    Falls back to ip link set address and macchanger if NetworkManager is unavailable or profile is missing.
+    Changes the MAC address of an interface using macchanger / ip link directly on kernel netdevice
+    and updates NetworkManager's cloned-mac-address property.
     """
     from cafe_chameleon.network.sysfs import wait_for_carrier
-    from cafe_chameleon.ui.console import log_step, log_wait
-    trace(f"[FEATURE] Setting MAC address on {interface} to {mac} (Profile: {profile or 'Auto'})")
-    log_step(f"Setting MAC {mac} on {interface}...")
+    from cafe_chameleon.ui.console import log_step, log_wait, log_plus, log_minus
+    clean_mac = mac.lower()
+    trace(f"[FEATURE] Setting MAC address on {interface} to {clean_mac} (Profile: {profile or 'Auto'})")
+    log_step(f"Setting MAC {clean_mac} on {interface}...")
 
     if not profile:
         try:
@@ -94,38 +94,36 @@ def set_mac_address(interface: str, mac: str, profile: str | None = None) -> boo
             profile = None
 
     if profile:
-        rc, _ = _run(["nmcli", "connection", "modify", profile, "802-11-wireless.cloned-mac-address", mac], debug=False)
-        if rc == 0:
-            log_wait(f"Reconnecting profile '{profile}' with MAC {mac}...")
-            _run(["ip", "link", "set", "dev", interface, "up"], debug=False)
-            rc_up, _ = _run(["nmcli", "connection", "up", profile], debug=False, timeout=15.0)
-            if rc_up == 0 or wait_for_carrier(interface, timeout=6.0):
-                return True
-            log_wait("Rescanning Wi-Fi & retrying reconnect...")
-            _run(["nmcli", "device", "wifi", "rescan"], debug=False)
-            rc_up2, _ = _run(["nmcli", "connection", "up", profile], debug=False, timeout=15.0)
-            if rc_up2 == 0 or wait_for_carrier(interface, timeout=6.0):
-                return True
+        _run(["nmcli", "connection", "modify", profile, "802-11-wireless.cloned-mac-address", clean_mac], debug=False)
 
-    log_wait(f"Applying manual MAC change -> {mac}...")
+    log_wait(f"Applying MAC change on {interface} -> {clean_mac}...")
     _run(["ip", "link", "set", "dev", interface, "down"], debug=False)
-    rc_ip, _ = _run(["ip", "link", "set", "dev", interface, "address", mac], debug=False)
-    rc_mc, _ = _run(["macchanger", "-m", mac, interface], debug=False)
+    rc_ip, _ = _run(["ip", "link", "set", "dev", interface, "address", clean_mac], debug=False)
+    rc_mc, _ = _run(["macchanger", "-m", clean_mac, interface], debug=False)
     _run(["ip", "link", "set", "dev", interface, "up"], debug=False)
     wait_for_carrier(interface, timeout=6.0)
 
     if profile:
+        log_wait(f"Reconnecting profile '{profile}'...")
         _run(["nmcli", "device", "wifi", "rescan"], debug=False)
         _run(["nmcli", "connection", "up", profile], debug=False, timeout=15.0)
+        wait_for_carrier(interface, timeout=6.0)
 
-    return rc_ip == 0 or rc_mc == 0
+    curr = get_current_mac(interface)
+    success = bool((curr and curr.lower() == clean_mac) or rc_ip == 0 or rc_mc == 0)
+    if success:
+        log_plus(f"MAC address changed to {clean_mac} on {interface}.", force=True)
+    else:
+        log_minus(f"Failed to change MAC address to {clean_mac} on {interface}.", force=True)
+    return success
 
 
 def reset_mac_address(interface: str, profile: str | None = None) -> bool:
-    """Resets the MAC address of a connection profile back to default hardware MAC."""
+    """Resets the MAC address of an interface and profile back to permanent hardware MAC."""
     from cafe_chameleon.network.sysfs import wait_for_carrier
-    from cafe_chameleon.ui.console import log_step, log_wait
-    trace(f"[FEATURE] Resetting MAC address on {interface} to hardware default (Profile: {profile or 'Auto'})")
+    from cafe_chameleon.ui.console import log_step, log_wait, log_plus, log_minus
+    perm_mac = get_permanent_mac(interface)
+    trace(f"[FEATURE] Resetting MAC address on {interface} to permanent hardware default ({perm_mac or 'HW'})")
     log_step(f"Resetting MAC to HW default on {interface}...")
 
     if not profile:
@@ -137,22 +135,28 @@ def reset_mac_address(interface: str, profile: str | None = None) -> bool:
 
     if profile:
         _run(["nmcli", "connection", "modify", profile, "802-11-wireless.cloned-mac-address", ""], debug=False)
-        log_wait(f"Reconnecting profile '{profile}'...")
-        rc_up, _ = _run(["nmcli", "connection", "up", profile], debug=False, timeout=15.0)
-        if rc_up == 0 or wait_for_carrier(interface, timeout=6.0):
-            return True
 
-    log_wait("Restoring hardware MAC via macchanger...")
+    log_wait(f"Restoring permanent hardware MAC on {interface}...")
     _run(["ip", "link", "set", "dev", interface, "down"], debug=False)
     rc_mc, _ = _run(["macchanger", "-p", interface], debug=False)
+    if perm_mac:
+        _run(["ip", "link", "set", "dev", interface, "address", perm_mac], debug=False)
     _run(["ip", "link", "set", "dev", interface, "up"], debug=False)
     wait_for_carrier(interface, timeout=6.0)
 
     if profile:
+        log_wait(f"Reconnecting profile '{profile}'...")
         _run(["nmcli", "device", "wifi", "rescan"], debug=False)
         _run(["nmcli", "connection", "up", profile], debug=False, timeout=15.0)
+        wait_for_carrier(interface, timeout=6.0)
 
-    return rc_mc == 0
+    curr = get_current_mac(interface)
+    success = bool((curr and perm_mac and curr.lower() == perm_mac.lower()) or rc_mc == 0)
+    if success:
+        log_plus(f"MAC address reset to permanent HW default ({perm_mac or 'HW'}) on {interface}.", force=True)
+    else:
+        log_minus(f"Failed to reset MAC address on {interface}.", force=True)
+    return success
 
 
 def get_current_mac(interface: str) -> str | None:

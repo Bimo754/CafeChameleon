@@ -37,38 +37,12 @@ def restore_auto(profile: str | None = None) -> None:
 
 
 def reset_mac(profile: str | None = None) -> bool:
+    from cafe_chameleon.scanners.detector import auto_detect_network_params
+    from cafe_chameleon.network.mac import reset_mac_address
     profile = profile or get_active_profile()
-    if profile:
-        trace(f"[FEATURE] Resetting MAC address on profile '{profile}' to original hardware default")
-        log_step(f"Resetting cloned MAC on profile '{profile}'...")
-        rc, _ = _run(["nmcli", "connection", "modify", profile, "802-11-wireless.cloned-mac-address", ""])
-        log_wait(f"Reconnecting profile '{profile}'...")
-        rc_up, _ = _run(["nmcli", "connection", "up", profile], timeout=15.0)
-        if rc == 0 and rc_up == 0:
-            log_plus("Reset MAC to permanent HW default.")
-            return True
-        else:
-            from cafe_chameleon.scanners.detector import auto_detect_network_params
-            from cafe_chameleon.network.mac import reset_mac_address
-            params = auto_detect_network_params()
-            iface = params.get("interface") or "wlan0"
-            if reset_mac_address(iface, profile):
-                log_plus("Reset MAC via fallback method.")
-                return True
-            else:
-                log_minus("Failed to reset MAC address.")
-                return False
-    else:
-        from cafe_chameleon.scanners.detector import auto_detect_network_params
-        from cafe_chameleon.network.mac import reset_mac_address
-        params = auto_detect_network_params()
-        iface = params.get("interface") or "wlan0"
-        if reset_mac_address(iface, profile):
-            log_plus("Reset MAC via fallback method.")
-            return True
-        else:
-            log_minus("Failed to reset MAC address.")
-            return False
+    params = auto_detect_network_params()
+    iface = params.get("interface") or "wlan0"
+    return reset_mac_address(iface, profile)
 
 
 def change_mac(mac: str | None = None, profile: str | None = None, loop: bool = True, timeout: float = 5.0) -> bool:
@@ -76,11 +50,12 @@ def change_mac(mac: str | None = None, profile: str | None = None, loop: bool = 
     Changes the MAC address of a connection profile or active interface to a specified or random MAC.
     If loop is True, automatically retries on failure or timeout (5s) until success or Ctrl+C.
     """
-    from cafe_chameleon.network.mac import is_valid_mac, generate_random_mac
+    from cafe_chameleon.network.mac import is_valid_mac, generate_random_mac, set_mac_address
+    from cafe_chameleon.scanners.detector import auto_detect_network_params
 
     if mac is not None:
         if not is_valid_mac(mac):
-            log_minus(f"Error: Invalid MAC address '{mac}'.")
+            log_minus(f"Error: Invalid MAC address '{mac}'.", force=True)
             return False
         explicit_mac = mac.lower()
     else:
@@ -93,47 +68,25 @@ def change_mac(mac: str | None = None, profile: str | None = None, loop: bool = 
         try:
             target_mac = explicit_mac if explicit_mac is not None else generate_random_mac()
 
-            if not profile:
-                from cafe_chameleon.scanners.detector import auto_detect_network_params
-                from cafe_chameleon.network.mac import set_mac_address
-                params = auto_detect_network_params()
-                iface = params.get("interface") or "wlan0"
-                if set_mac_address(iface, target_mac, None):
-                    log_plus(f"MAC address changed to {target_mac}.")
-                    return True
-                elif not loop:
-                    log_minus(f"Failed to change MAC address to {target_mac}.")
-                    return False
-            else:
+            if profile:
                 trace(f"[FEATURE] Attempt {attempt}: Setting MAC address on profile '{profile}' to {target_mac}")
                 log_step(f"Setting cloned MAC on profile '{profile}' to {target_mac} (Attempt {attempt})...")
                 rc, _ = _run(["nmcli", "connection", "modify", profile, "802-11-wireless.cloned-mac-address", target_mac])
                 if rc == 0:
                     log_wait(f"Reconnecting profile '{profile}' (timeout: {int(timeout)}s)...")
                     rc_up, _ = _run(["nmcli", "connection", "up", profile], timeout=timeout)
-                    if rc_up == 0:
-                        log_plus(f"MAC address changed to {target_mac}.")
-                        return True
-                    log_wait("Rescanning Wi-Fi & retrying reconnect...")
-                    _run(["nmcli", "device", "wifi", "rescan"], debug=False)
-                    rc_up2, _ = _run(["nmcli", "connection", "up", profile], timeout=timeout)
-                    if rc_up2 == 0:
-                        log_plus(f"MAC address changed to {target_mac}.")
-                        return True
+                    if rc_up != 0:
+                        log_wait("Rescanning Wi-Fi & retrying reconnect...")
+                        _run(["nmcli", "device", "wifi", "rescan"], debug=False)
+                        _run(["nmcli", "connection", "up", profile], timeout=timeout)
 
-                from cafe_chameleon.scanners.detector import auto_detect_network_params
-                from cafe_chameleon.network.mac import set_mac_address
-                params = auto_detect_network_params()
-                iface = params.get("interface") or "wlan0"
-                if set_mac_address(iface, target_mac, profile):
-                    log_plus(f"MAC address changed to {target_mac} via fallback method.")
-                    return True
-                elif not loop:
-                    log_minus(f"Failed to change MAC address to {target_mac}.")
-                    return False
+            params = auto_detect_network_params()
+            iface = params.get("interface") or "wlan0"
+            if set_mac_address(iface, target_mac, profile):
+                return True
 
             if not loop:
-                log_minus(f"Failed to change MAC address to {target_mac}.")
+                log_minus(f"Failed to change MAC address to {target_mac}.", force=True)
                 return False
 
             log_warning(f"MAC change attempt {attempt} failed or timed out ({int(timeout)}s). Retrying (Press Ctrl+C to abort)...")
@@ -141,7 +94,7 @@ def change_mac(mac: str | None = None, profile: str | None = None, loop: bool = 
             time.sleep(1.0)
 
         except KeyboardInterrupt:
-            log_minus("\nMAC change aborted by user (Ctrl+C).")
+            log_minus("\nMAC change aborted by user (Ctrl+C).", force=True)
             return False
 
 
@@ -213,6 +166,6 @@ def release_interface(interface: str | None = None, profile: str | None = None) 
         _run(["nmcli", "connection", "up", prof], debug=False, timeout=15.0)
 
     wait_for_carrier(iface, timeout=4.0)
-    log_plus(f"Interface {iface} released and unlocked successfully.")
+    log_plus(f"Interface {iface} released and unlocked successfully.", force=True)
     return True
 
