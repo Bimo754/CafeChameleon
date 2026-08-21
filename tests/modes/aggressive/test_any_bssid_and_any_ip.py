@@ -249,6 +249,63 @@ class TestAnyBSSIDAndAnyIP(unittest.TestCase):
         self.assertIn("00:11:22:33:44:01", passed_clients)
         self.assertNotIn("00:11:22:33:44:02", passed_clients)
 
+    @patch("cafe_chameleon.modes.aggressive.runner.log_main")
+    @patch("cafe_chameleon.modes.aggressive.runner.is_monitor_mode_active", return_value=False)
+    @patch("cafe_chameleon.modes.aggressive.runner.auto_detect_network_params", return_value={"interface": "wlan0"})
+    @patch("cafe_chameleon.modes.aggressive.runner.get_active_profile", return_value="Cafe_WiFi")
+    @patch("cafe_chameleon.modes.aggressive.runner.get_ssid_for_profile", return_value="Cafe_SSID")
+    @patch("cafe_chameleon.modes.aggressive.runner.has_internet", side_effect=[False, False, True])
+    @patch("cafe_chameleon.modes.aggressive.runner.scan_bssids_for_ssid")
+    @patch("cafe_chameleon.modes.aggressive.runner.sniff_air_clients")
+    @patch("cafe_chameleon.modes.aggressive.runner.lock_bssid", return_value=True)
+    @patch("cafe_chameleon.modes.aggressive.runner.wait_for_carrier", return_value=True)
+    @patch("cafe_chameleon.modes.aggressive.runner.set_mac_address", return_value=True)
+    @patch("cafe_chameleon.modes.aggressive.runner.test_air_client_targets")
+    def test_any_bssid_suppresses_target_and_testing_log_main(
+        self,
+        mock_test_air_targets,
+        mock_set_mac,
+        mock_wait_carrier,
+        mock_lock_bssid,
+        mock_sniff_air,
+        mock_scan_bssids,
+        mock_has_internet,
+        mock_get_ssid,
+        mock_get_profile,
+        mock_auto_params,
+        mock_is_mon,
+        mock_log_main
+    ):
+        mock_scan_bssids.return_value = [
+            {"bssid": "10:11:12:13:14:15", "signal": "90", "chan": "1", "security": "OPEN"},
+        ]
+        mock_sniff_air.return_value = {
+            "10:11:12:13:14:15": {"00:11:22:33:44:01": "10.0.0.10"},
+        }
+        mock_test_air_targets.return_value = (True, True)
+
+        args = argparse.Namespace(
+            profile="Cafe_WiFi",
+            interface="wlan0",
+            air=5,
+            any_bssid=True,
+            any_ip=False,
+            force=False,
+            select_bssid=False,
+            clients=False,
+            threshold=10,
+            passive_only=False,
+            force_deauth=False
+        )
+
+        run_aggressive(args)
+        logged_messages = [call.args[0] for call in mock_log_main.call_args_list if call.args]
+
+        for msg in logged_messages:
+            self.assertNotIn("Target:", msg)
+            self.assertNotIn("Testing", msg)
+
 
 if __name__ == "__main__":
     unittest.main()
+

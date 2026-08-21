@@ -123,11 +123,12 @@ def test_air_client_targets(
     non_active_targets = {m: ip for m, ip in ordered_clients.items() if not is_client_active(m, air_clients_map)}
 
     is_air_only = getattr(args, "air_only", None) is not None
+    any_bssid_mode = bool(getattr(args, "any_bssid", False) is True)
 
     max_non_active = 15
     if len(non_active_targets) > max_non_active:
         limited_non_active = dict(list(non_active_targets.items())[:max_non_active])
-        if not is_air_only:
+        if not is_air_only and not any_bssid_mode:
             log_main(f"  [*] Capping non-active target testing to {max_non_active} (omitted {len(non_active_targets) - max_non_active} idle targets).")
         ordered_clients = {**active_targets, **limited_non_active}
 
@@ -135,8 +136,8 @@ def test_air_client_targets(
     active_info = f" ({active_count} active)" if active_count > 0 else ""
 
     log_step(f"Testing {len(ordered_clients)} air target(s){active_info}...")
-    if not is_air_only:
-        log_main(f"  -> Testing {len(ordered_clients)} air target(s){active_info}...")
+    if not is_air_only and not any_bssid_mode:
+        log_main(f"  [*] Testing {len(ordered_clients)} target(s){active_info}...")
     set_scan_status(scan_type="Idle")
 
     auto_ip = auto_params.get("local_ip") or "10.68.193.222"

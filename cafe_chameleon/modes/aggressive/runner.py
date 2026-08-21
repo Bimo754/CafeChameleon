@@ -259,8 +259,8 @@ def run_aggressive(args) -> bool:
 
                     msg = f"[{idx}/{len(ranked_bssids)}] Target: {target_bssid} (Sig: {signal_pct}%, Ch: {chan})"
                     log_info(msg)
-                    if not is_air_only:
-                        log_main(f"\n{msg}")
+                    if not is_air_only and not any_bssid_mode:
+                        log_main(f"\n[{idx}/{len(ranked_bssids)}] Target {target_bssid} ({signal_pct}%, Ch {chan})")
 
                     if is_monitor_mode_active(interface):
                         set_managed_mode(interface)
@@ -269,8 +269,8 @@ def run_aggressive(args) -> bool:
                     set_mac_address(interface, attack_mac, profile=profile)
 
                     if not lock_bssid(target_bssid, profile):
-                        if not is_air_only:
-                            log_main(f"[!] Skipping BSSID {target_bssid} (lock failed).")
+                        if not is_air_only and not any_bssid_mode:
+                            log_main(f"  [!] Lock failed: {target_bssid}")
                         continue
 
                     wait_for_carrier(interface, timeout=6.0)
@@ -423,8 +423,8 @@ def run_aggressive(args) -> bool:
 
             msg = f"[{idx}/{len(bssids)}] Target: {target_bssid} (Sig: {signal_pct}%, Ch: {chan})"
             log_info(msg)
-            if not is_air_only:
-                log_main(f"\n{msg}")
+            if not is_air_only and not any_bssid_mode:
+                log_main(f"\n[{idx}/{len(bssids)}] Target {target_bssid} ({signal_pct}%, Ch {chan})")
 
             if is_monitor_mode_active(interface):
                 set_managed_mode(interface)
@@ -434,8 +434,8 @@ def run_aggressive(args) -> bool:
             set_mac_address(interface, attack_mac, profile=profile)
 
             if not lock_bssid(target_bssid, profile):
-                if not is_air_only:
-                    log_main(f"[!] Skipping BSSID {target_bssid} (lock failed).")
+                if not is_air_only and not any_bssid_mode:
+                    log_main(f"  [!] Lock failed: {target_bssid}")
                 continue
 
             wait_for_carrier(interface, timeout=6.0)
@@ -473,7 +473,8 @@ def run_aggressive(args) -> bool:
                 log_info(f"Skipping subnet scanning on BSSID {target_bssid} (--air-only enabled).")
             else:
                 log_step(f"Scanning subnet on BSSID {target_bssid}...")
-                log_main(f"  -> Scanning subnet on BSSID {target_bssid}...")
+                if not any_bssid_mode:
+                    log_main(f"  [*] Scanning subnet...")
                 log_hijack(f"[*] Scanning subnet on BSSID {target_bssid}...")
                 setattr(args, "interface", interface)
                 success = run_scan_wrapper(args, quiet_header=True)
@@ -488,8 +489,8 @@ def run_aggressive(args) -> bool:
                         return True
 
             log_warning(f"No internet on BSSID {target_bssid}. Moving next...")
-            if not is_air_only:
-                log_main(f"  [-] No internet on BSSID {target_bssid}. Moving next...")
+            if not is_air_only and not any_bssid_mode:
+                log_main(f"  [-] No internet on BSSID {target_bssid}.")
 
         except (KeyboardInterrupt, MainSkipInterrupt):
             now = time.time()
