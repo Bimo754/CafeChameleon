@@ -25,13 +25,13 @@
 
 [![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Security Classification](https://img.shields.io/badge/classification-Defensive%20Research-orange.svg)](#disclaimer--legal-notice)
+[![Security Classification](https://img.shields.io/badge/classification-Defensive%20Research-orange.svg)](#legal-disclaimer--ethical-use-policy)
 
 CafeChameleon is a modular Linux network security testing framework and defensive research toolkit developed to audit, demonstrate, and analyze Layer 2 authentication vulnerabilities in captive portal wireless environments.
 
 ---
 
-## [ LEGAL DISCLAIMER & ETHICAL USE POLICY ]
+## LEGAL DISCLAIMER & ETHICAL USE POLICY
 
 > **CRITICAL NOTICE FOR RESEARCHERS AND SECURITY AUDITORS:**
 >
@@ -42,7 +42,7 @@ CafeChameleon is a modular Linux network security testing framework and defensiv
 
 ---
 
-## [ SECURITY MODEL & VULNERABILITY ANALYSIS ]
+## SECURITY MODEL & VULNERABILITY ANALYSIS
 
 Captive portals deployed on unencrypted wireless networks (802.11 Open/OWE) frequently exhibit architectural weaknesses that compromise access control boundaries:
 
@@ -54,13 +54,13 @@ CafeChameleon provides a structured testbed to evaluate these attack surfaces an
 
 ---
 
-## [ OPERATIONAL CAPABILITIES ]
+## OPERATIONAL CAPABILITIES
 
 ### Simple Mode (`simple`)
 * Automated local subnet detection, gateway discovery, and CIDR parsing.
 * Fast adaptive host discovery utilizing Nmap Ping Sweeps (`-sn`) with Wi-Fi RTT timing constraints.
 * Subnet block expansion (`-w` / `--wide` flag for `/22` subnet testing).
-* Layer 2 session takeover validation and automated internet connectivity verification.
+* Layer 2 session takeover validation and automated multi-provider internet connectivity verification.
 * **Skip Gateway Ping (`--no-gateway`)**: Skips upstream gateway ICMP/ARP ping checks during impersonation.
 
 ### Aggressive Mode (`aggressive`)
@@ -77,7 +77,7 @@ CafeChameleon provides a structured testbed to evaluate these attack surfaces an
 ### Wi-Fi Controller (`wifi`)
 * **BSSID Locking (`-l` / `--lock`)**: Binds NetworkManager connection profiles to a designated physical BSSID.
 * **Auto-Roam (`-a` / `--auto`)**: Evaluates available Access Points and roams dynamically to the strongest RSSI source.
-* **MAC Spoofing / Randomization (`-m` / `--mac`)**: Sets the MAC address to a specified value, randomizes it if omitted, or displays the current set and permanent MAC addresses with `--mac show`.
+* **MAC Spoofing / Randomization (`-m` / `--mac`)**: Sets the MAC address to a specified value, randomizes it if omitted, or displays current set and permanent MAC addresses with `--mac show`.
 * **MAC Reset (`-r` / `--reset-mac`)**: Restores hardware MAC addresses to permanent factory defaults.
 * **Interface Release (`--release`)**: Completely unlocks the wireless interface (teardown monitor mode, terminate DHCP clients, restore NetworkManager).
 * **Connection Status (`-s` / `--status`)**: Queries current BSSID lock configurations, active profiles, MAC addresses, and link parameters.
@@ -85,9 +85,9 @@ CafeChameleon provides a structured testbed to evaluate these attack surfaces an
 ### Blacklist Manager (`blacklist`)
 * **Target Exclusion**: Automatically excludes blacklisted client MACs and Access Point BSSIDs in both `simple` and `aggressive` modes.
 * **Persistent Storage**: Saves blacklisted MACs permanently to `blacklist.txt`.
-* **Add to Blacklist (`add <mac>`)**: Adds a specific MAC address to the blacklist.
-* **Remove from Blacklist (`remove <mac>`)**: Removes a MAC address from the blacklist.
-* **List Blacklist (`list`)**: Displays all currently blacklisted MAC addresses.
+* **Add to Blacklist (`add <mac>` / `--add <mac>`)**: Adds a specific MAC address to the blacklist.
+* **Remove from Blacklist (`remove <mac>` / `--remove <mac>`)**: Removes a MAC address from the blacklist.
+* **List Blacklist (`list` / `--list`)**: Displays all currently blacklisted MAC addresses.
 
 ### Multi-Window Telemetry Engine
 * Centered multi-window terminal layout separating Air Sniffing, Subnet Scanning, and Session Takeover outputs.
@@ -103,7 +103,7 @@ CafeChameleon provides a structured testbed to evaluate these attack surfaces an
 
 ---
 
-## [ REPOSITORY STRUCTURE ]
+## REPOSITORY STRUCTURE
 
 ```text
 CafeChameleon/
@@ -128,7 +128,7 @@ CafeChameleon/
 
 ---
 
-## [ PREREQUISITES & INSTALLATION ]
+## PREREQUISITES & INSTALLATION
 
 ### System Requirements
 * **Operating System**: Linux (Kali Linux, Debian, Ubuntu, Arch Linux).
@@ -148,7 +148,7 @@ pip3 install scapy pytest
 
 ---
 
-## [ CLI REFERENCE & USAGE EXAMPLES ]
+## CLI REFERENCE & USAGE EXAMPLES
 
 ### Simple Subnet Discovery & Session Audit
 ```bash
@@ -241,7 +241,7 @@ python3 -m pytest tests/
 
 ---
 
-## [ DEFENSIVE HARDENING RECOMMENDATIONS ]
+## DEFENSIVE HARDENING RECOMMENDATIONS
 
 To protect infrastructure from the Layer 2 vulnerabilities demonstrated by this tool:
 
@@ -253,12 +253,12 @@ To protect infrastructure from the Layer 2 vulnerabilities demonstrated by this 
 
 ---
 
-## [ ACKNOWLEDGMENTS & CREDITS ]
+## ACKNOWLEDGMENTS & CREDITS
 
 * **ASCII Artwork**: Original chameleon ASCII illustration created by artist **pils** (archived on ASCII.co.uk / Usenet).
 
 ---
 
-## [ LICENSE ]
+## LICENSE
 
 This project is licensed under the terms of the [MIT License](LICENSE).
