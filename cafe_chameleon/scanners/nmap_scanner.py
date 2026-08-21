@@ -15,7 +15,8 @@ def nmap_scan_subnet(
     interface: str,
     parent_net=None,
     gateway_ip: str | None = None,
-    gateway_mac: str | None = None
+    gateway_mac: str | None = None,
+    silent: bool = False
 ) -> list[dict]:
     """
     Executes a fast Nmap multi-protocol Ping Scan (-sn)

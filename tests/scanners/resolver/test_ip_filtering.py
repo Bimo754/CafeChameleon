@@ -232,6 +232,18 @@ class TestIPFiltering(unittest.TestCase):
         called_target_ip = mock_hijack.call_args[0][1]
         self.assertEqual(called_target_ip, "10.55.12.162")
 
+    @patch("cafe_chameleon.scanners.resolver.sweep.check_kernel_cache", return_value=None)
+    @patch("cafe_chameleon.scanners.arp_scanner.scan_subnet")
+    @patch("cafe_chameleon.scanners.resolver.sweep._run", return_value=(0, ""))
+    def test_sweep_l3_and_fallback_calls_scan_subnet_with_silent(self, mock_run, mock_scan_subnet, mock_cache):
+        from cafe_chameleon.scanners.resolver.sweep import sweep_l3_and_fallback
+        mock_scan_subnet.return_value = [{"ip": "10.55.12.50", "mac": "a4:f9:33:ea:95:ed"}]
+
+        res = sweep_l3_and_fallback("a4:f9:33:ea:95:ed", "wlan0", target_subnet="10.55.12.0/24")
+
+        self.assertEqual(res, "10.55.12.50")
+        mock_scan_subnet.assert_called_once_with("10.55.12.0/24", "wlan0", silent=True)
+
 
 if __name__ == "__main__":
     unittest.main()
