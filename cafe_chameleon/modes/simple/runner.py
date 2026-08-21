@@ -9,6 +9,7 @@ from cafe_chameleon.ui.console import (
     log_scan,
     log_main,
     log_plus,
+    log_subnet_scan,
     set_scan_status,
     set_main_status
 )
@@ -56,7 +57,7 @@ def run_simple(args, quiet_header: bool = False) -> bool:
     set_main_status(interface=interface, profile=profile, ssid=auto_params.get("ssid"), status="Subnet Scanning")
 
     if not quiet_header:
-        log_main(f"[*] Starting Subnet Scanning on {target_str}...")
+        log_subnet_scan(target_str)
 
     subnets = split_subnets_into_blocks(network)
 

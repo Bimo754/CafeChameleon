@@ -11,6 +11,7 @@ from cafe_chameleon.ui.console import (
     log_plus,
     log_warning,
     log_main,
+    log_subnet_scan,
     set_main_status,
     set_scan_status,
     set_hijack_status,
@@ -261,9 +262,9 @@ def run_aggressive(args) -> bool:
                     log_info(msg)
                     if not is_air_only:
                         if any_bssid_mode:
-                            log_main(f"[*] Connecting to {target_bssid}...")
+                            log_main(f"[*] Connecting to {target_bssid}...", verbose_only=True)
                         else:
-                            log_main(f"\n[{idx}/{len(ranked_bssids)}] Target {target_bssid} ({signal_pct}%, Ch {chan})")
+                            log_main(f"\n[{idx}/{len(ranked_bssids)}] Target {target_bssid} ({signal_pct}%, Ch {chan})", verbose_only=True)
 
                     if is_monitor_mode_active(interface):
                         set_managed_mode(interface)
@@ -428,9 +429,9 @@ def run_aggressive(args) -> bool:
             log_info(msg)
             if not is_air_only:
                 if any_bssid_mode:
-                    log_main(f"[*] Connecting to {target_bssid}...")
+                    log_main(f"[*] Connecting to {target_bssid}...", verbose_only=True)
                 else:
-                    log_main(f"\n[{idx}/{len(bssids)}] Target {target_bssid} ({signal_pct}%, Ch {chan})")
+                    log_main(f"\n[{idx}/{len(bssids)}] Target {target_bssid} ({signal_pct}%, Ch {chan})", verbose_only=True)
 
             if is_monitor_mode_active(interface):
                 set_managed_mode(interface)
@@ -479,8 +480,7 @@ def run_aggressive(args) -> bool:
                 log_info(f"Skipping subnet scanning on BSSID {target_bssid} (--air-only enabled).")
             else:
                 log_step(f"Scanning subnet on BSSID {target_bssid}...")
-                if not any_bssid_mode:
-                    log_main(f"  [*] Scanning subnet...")
+                log_subnet_scan(target_bssid)
                 log_hijack(f"[*] Scanning subnet on BSSID {target_bssid}...")
                 setattr(args, "interface", interface)
                 success = run_scan_wrapper(args, quiet_header=True)

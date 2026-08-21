@@ -6,7 +6,9 @@ DEBUG_COMMANDS: bool = False
 DEBUG_TRACING: bool = False
 USE_ORIGINAL_MAC: bool = False
 QUIET: bool = False
+VERBOSE: bool = False
 USE_XTERM: bool = True
+IS_LAUNCHER_MODE: bool = False
 
 _RESTORE_PARAMS: dict | None = None
 _RESTORE_CALLBACK = None
@@ -63,6 +65,24 @@ def set_quiet(val: bool) -> None:
 
 def get_quiet() -> bool:
     return QUIET
+
+
+def set_verbose(val: bool) -> None:
+    global VERBOSE
+    VERBOSE = val
+
+
+def get_verbose() -> bool:
+    return VERBOSE
+
+
+def set_launcher_mode(val: bool) -> None:
+    global IS_LAUNCHER_MODE
+    IS_LAUNCHER_MODE = val
+
+
+def is_launcher_mode() -> bool:
+    return IS_LAUNCHER_MODE
 
 
 def set_use_xterm(val: bool) -> None:

@@ -76,6 +76,7 @@ def parse_arguments(args=None):
     common_parser = argparse.ArgumentParser(add_help=False, argument_default=argparse.SUPPRESS)
     common_exec = common_parser.add_argument_group("Global Flags")
     common_exec.add_argument("-q", "--quiet", action="store_true", help="Suppress info logs")
+    common_exec.add_argument("-v", "--verbose", action="store_true", help="Enable verbose logging in main launcher output")
     common_exec.add_argument(
         "--debug", nargs="?", const="commands", choices=["commands", "tracing"], metavar="MODE",
         help="Debug mode ('commands' or 'tracing')"

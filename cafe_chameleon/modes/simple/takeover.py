@@ -10,6 +10,7 @@ from cafe_chameleon.ui.console import (
     log_main,
     log_plus,
     log_hijack,
+    log_hijack_attempt,
     set_scan_status,
     set_hijack_status
 )
@@ -24,7 +25,7 @@ from cafe_chameleon.utils.blacklist import is_blacklisted, load_blacklist
 def test_discovered_hosts(unique_hosts: list[dict], interface: str, gw_ip: str, gw_mac: str, netmask: str, broadcast: str, local_mac: str, ipmask: str, profile: str | None, args) -> bool:
     """Iterates through discovered active hosts and attempts host impersonation/takeover."""
     set_scan_status(scan_type="Host Takeover")
-    log_main("[*] Testing discovered hosts for internet access...")
+    log_main("[*] Testing discovered hosts for internet access...", verbose_only=True)
 
     force_deauth = getattr(args, "force_deauth", False)
     no_gateway = getattr(args, "no_gateway", False)
@@ -39,6 +40,7 @@ def test_discovered_hosts(unique_hosts: list[dict], interface: str, gw_ip: str, 
                 continue
             is_gw = (gw_ip and host["ip"] == gw_ip) or (gw_mac and host["mac"].lower() == gw_mac.lower())
             if not is_gw:
+                log_hijack_attempt(host['ip'], host['mac'])
                 log_hijack(f"[*] Impersonating host: IP {host['ip']} ({host['mac']})...")
                 set_hijack_status(ip=host['ip'], mac=host['mac'], technique="Simple Impersonation Sweep", clear_section2=True)
                 hijack_success = hijack(

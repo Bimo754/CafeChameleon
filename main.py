@@ -10,7 +10,7 @@ Subcommands:
 """
 
 from cafe_chameleon.cli.parser import parse_arguments
-from cafe_chameleon.utils.state import set_debug, set_quiet, set_use_xterm, set_use_original_mac, get_debug_tracing
+from cafe_chameleon.utils.state import set_debug, set_quiet, set_verbose, set_launcher_mode, set_use_xterm, set_use_original_mac, get_debug_tracing
 from cafe_chameleon.utils.tracing import trace, log_exception_to_trace, get_recent_trace, get_trace_filepath
 from cafe_chameleon.utils.signals import restore_and_exit
 from cafe_chameleon.ui.console import init_xterm
@@ -32,13 +32,17 @@ def main():
         if getattr(args, "quiet", False):
             set_quiet(True)
 
+        if getattr(args, "verbose", False):
+            set_verbose(True)
+
+        cmd = getattr(args, "command", "")
+        set_launcher_mode(cmd in ("simple", "aggressive"))
+
         # Check for interface warnings and print in launching terminal
         iface_arg = getattr(args, "interface", None)
         warn_msg = check_interface_warning(iface_arg)
         if warn_msg:
             print(colorize_brackets(f"{YELLOW}[!] {warn_msg}{RESET}"))
-
-        cmd = getattr(args, "command", "")
 
         if getattr(args, "no_xterm", False) or cmd in ("wifi", "blacklist"):
             set_use_xterm(False)

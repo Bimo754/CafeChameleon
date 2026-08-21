@@ -55,51 +55,56 @@ def colorize_brackets(text: str) -> str:
     return ''.join(new_parts)
 
 
-def _log(tag: str, color_code: str, text: str, end: str | None = None, start: str = "") -> None:
+def _log(tag: str, color_code: str, text: str, end: str | None = None, start: str = "", force: bool = False) -> None:
     """Internal helper for clean, modern colored logging."""
+    from cafe_chameleon.utils.state import get_quiet, get_verbose, is_launcher_mode
+    if get_quiet():
+        return
+    if is_launcher_mode() and not force and not get_verbose():
+        return
     prefix = f"{start}{BRACKET_OPEN}{BOLD}{color_code}{tag}{RESET}{BRACKET_CLOSE} "
     formatted_text = colorize_brackets(text)
-    print(f"{prefix}{formatted_text}", end=end)
+    print(f"{prefix}{formatted_text}", end=end, flush=True)
 
 
-def info(text: str, end: str | None = None, start: str = "") -> None:
-    _log("i", CYAN, text, end=end, start=start)
+def info(text: str, end: str | None = None, start: str = "", force: bool = False) -> None:
+    _log("i", CYAN, text, end=end, start=start, force=force)
 
 
-def plus(text: str, end: str | None = None, start: str = "") -> None:
-    _log("+", GREEN, text, end=end, start=start)
+def plus(text: str, end: str | None = None, start: str = "", force: bool = False) -> None:
+    _log("+", GREEN, text, end=end, start=start, force=force)
 
 
-def gplus(text: str, end: str | None = None, start: str = "") -> None:
-    _log("+", YELLOW, text, end=end, start=start)
+def gplus(text: str, end: str | None = None, start: str = "", force: bool = False) -> None:
+    _log("+", YELLOW, text, end=end, start=start, force=force)
 
 
-def question(text: str, end: str | None = None, start: str = "") -> None:
-    _log("?", YELLOW, text, end=end, start=start)
+def question(text: str, end: str | None = None, start: str = "", force: bool = False) -> None:
+    _log("?", YELLOW, text, end=end, start=start, force=force)
 
 
-def qmark(text: str, end: str | None = None, start: str = "") -> None:
-    _log("?", YELLOW, text, end=end, start=start)
+def qmark(text: str, end: str | None = None, start: str = "", force: bool = False) -> None:
+    _log("?", YELLOW, text, end=end, start=start, force=force)
 
 
-def warning(text: str, end: str | None = None, start: str = "") -> None:
-    _log("!", RED, text, end=end, start=start)
+def warning(text: str, end: str | None = None, start: str = "", force: bool = False) -> None:
+    _log("!", RED, text, end=end, start=start, force=force)
 
 
-def minus(text: str, end: str | None = None, start: str = "") -> None:
-    _log("-", RED, text, end=end, start=start)
+def minus(text: str, end: str | None = None, start: str = "", force: bool = False) -> None:
+    _log("-", RED, text, end=end, start=start, force=force)
 
 
-def bminus(text: str, end: str | None = None, start: str = "") -> None:
-    _log("-", BLUE, text, end=end, start=start)
+def bminus(text: str, end: str | None = None, start: str = "", force: bool = False) -> None:
+    _log("-", BLUE, text, end=end, start=start, force=force)
 
 
-def step(text: str, end: str | None = None, start: str = "") -> None:
-    _log("*", CYAN, text, end=end, start=start)
+def step(text: str, end: str | None = None, start: str = "", force: bool = False) -> None:
+    _log("*", CYAN, text, end=end, start=start, force=force)
 
 
-def wait(text: str, end: str | None = None, start: str = "") -> None:
-    _log("~", YELLOW, text, end=end, start=start)
+def wait(text: str, end: str | None = None, start: str = "", force: bool = False) -> None:
+    _log("~", YELLOW, text, end=end, start=start, force=force)
 
 
 

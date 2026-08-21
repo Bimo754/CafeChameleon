@@ -12,6 +12,7 @@ from cafe_chameleon.ui.console import (
     log_main,
     log_plus,
     log_hijack,
+    log_hijack_attempt,
     log_step,
     log_wait,
     set_scan_status,
@@ -129,7 +130,7 @@ def test_air_client_targets(
     if len(non_active_targets) > max_non_active:
         limited_non_active = dict(list(non_active_targets.items())[:max_non_active])
         if not is_air_only and not any_bssid_mode:
-            log_main(f"  [*] Capping non-active target testing to {max_non_active} (omitted {len(non_active_targets) - max_non_active} idle targets).")
+            log_main(f"  [*] Capping non-active target testing to {max_non_active} (omitted {len(non_active_targets) - max_non_active} idle targets).", verbose_only=True)
         ordered_clients = {**active_targets, **limited_non_active}
 
     active_count = len(active_targets)
@@ -137,7 +138,7 @@ def test_air_client_targets(
 
     log_step(f"Testing {len(ordered_clients)} air target(s){active_info}...")
     if not is_air_only and not any_bssid_mode:
-        log_main(f"  [*] Testing {len(ordered_clients)} target(s){active_info}...")
+        log_main(f"  [*] Testing {len(ordered_clients)} target(s){active_info}...", verbose_only=True)
     set_scan_status(scan_type="Idle")
 
     auto_ip = auto_params.get("local_ip") or "10.68.193.222"
@@ -212,6 +213,7 @@ def test_air_client_targets(
                 lock_bssid(target_bssid, profile)
                 wait_for_carrier(interface, timeout=6.0)
 
+            log_hijack_attempt(target_ip, client_mac)
             hijack_success = hijack(
                 interface, target_ip, client_mac, netmask, broadcast, gw_ip,
                 max_retries=2, profile=profile, bssid=target_bssid, channel=chan,

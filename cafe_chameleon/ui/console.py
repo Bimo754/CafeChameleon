@@ -2,7 +2,7 @@
 cafe_chameleon.ui.console - High-level logging facade routing to xterm windows or terminal stdout.
 """
 
-from cafe_chameleon.utils.state import get_quiet, get_use_xterm
+from cafe_chameleon.utils.state import get_quiet, get_verbose, get_use_xterm
 from cafe_chameleon.ui import colors
 from cafe_chameleon.ui.xterm import XtermManager
 
@@ -49,8 +49,10 @@ def format_window_text(target: str, text: str) -> str:
     return f"{color}{text}\033[0m"
 
 
-def log_main(text: str, clear: bool = False, add_newline: bool = True) -> None:
+def log_main(text: str, clear: bool = False, add_newline: bool = True, verbose_only: bool = False) -> None:
     if get_quiet():
+        return
+    if verbose_only and not get_verbose():
         return
     if is_xterm_running():
         XtermManager._instance.write("main", format_window_text("main", text), clear=clear, add_newline=add_newline)
@@ -59,6 +61,26 @@ def log_main(text: str, clear: bool = False, add_newline: bool = True) -> None:
         print("\033[H\033[2J\033[3J", end="", flush=True)
     end_char = "\n" if add_newline else ""
     print(colors.colorize_brackets(text), end=end_char, flush=True)
+
+
+def log_subnet_scan(subnet: str) -> None:
+    """Logs subnet scanning progress in the main launcher output."""
+    text = f"Scanning subnet {subnet}"
+    if is_xterm_running():
+        XtermManager._instance.write("main", format_window_text("main", text), add_newline=True)
+    if not get_quiet():
+        print(colors.colorize_brackets(text), flush=True)
+
+
+def log_hijack_attempt(ip: str, mac: str) -> None:
+    """Logs host hijacking attempt with even column spacing for the IP address."""
+    clean_ip = str(ip).strip() if ip else "N/A"
+    clean_mac = str(mac).strip() if mac else "N/A"
+    text = f"Trying to hijack {clean_ip:<15} - {clean_mac}"
+    if is_xterm_running():
+        XtermManager._instance.write("main", format_window_text("main", text), add_newline=True)
+    if not get_quiet():
+        print(colors.colorize_brackets(text), flush=True)
 
 
 def set_main_status(interface: str | None = None, profile: str | None = None, ssid: str | None = None, status: str | None = None) -> None:
@@ -74,9 +96,10 @@ def log_air(text: str, clear: bool = False) -> None:
     if is_xterm_running():
         XtermManager._instance.write("air", format_window_text("air", text), clear=clear)
         return
-    if clear:
-        print("\033[H\033[2J\033[3J", end="", flush=True)
-    print(colors.colorize_brackets(text))
+    if get_verbose():
+        if clear:
+            print("\033[H\033[2J\033[3J", end="", flush=True)
+        print(colors.colorize_brackets(text))
 
 
 _DEFAULT = object()
@@ -104,7 +127,8 @@ def log_scan(text: str, clear: bool = False) -> None:
     if is_xterm_running():
         XtermManager._instance.write("scan", format_window_text("scan", text), clear=clear)
         return
-    print(colors.colorize_brackets(text))
+    if get_verbose():
+        print(colors.colorize_brackets(text))
 
 
 def set_scan_status(subnet=_DEFAULT, count=_DEFAULT, scan_type=_DEFAULT) -> None:
@@ -127,7 +151,8 @@ def log_hijack(text: str, clear: bool = False) -> None:
     if is_xterm_running():
         XtermManager._instance.write("hijack", format_window_text("hijack", text), clear=clear)
         return
-    print(colors.colorize_brackets(text))
+    if get_verbose():
+        print(colors.colorize_brackets(text))
 
 
 def set_hijack_status(ip=_DEFAULT, mac=_DEFAULT, technique: str | None = None, clear_section2: bool = False) -> None:
@@ -202,49 +227,49 @@ def get_user_input(prompt: str = "") -> str:
         return ""
 
 
-def log_info(text: str, end: str | None = None, start: str = "") -> None:
+def log_info(text: str, end: str | None = None, start: str = "", force: bool = False) -> None:
     if get_quiet():
         return
-    colors.info(text, end=end, start=start)
+    colors.info(text, end=end, start=start, force=force)
 
 
-def log_plus(text: str, end: str | None = None, start: str = "") -> None:
+def log_plus(text: str, end: str | None = None, start: str = "", force: bool = False) -> None:
     if get_quiet():
         return
-    colors.plus(text, end=end, start=start)
+    colors.plus(text, end=end, start=start, force=force)
 
 
-def log_gplus(text: str, end: str | None = None, start: str = "") -> None:
+def log_gplus(text: str, end: str | None = None, start: str = "", force: bool = False) -> None:
     if get_quiet():
         return
-    colors.gplus(text, end=end, start=start)
+    colors.gplus(text, end=end, start=start, force=force)
 
 
-def log_warning(text: str, end: str | None = None, start: str = "") -> None:
+def log_warning(text: str, end: str | None = None, start: str = "", force: bool = False) -> None:
     if get_quiet():
         return
-    colors.warning(text, end=end, start=start)
+    colors.warning(text, end=end, start=start, force=force)
 
 
-def log_minus(text: str, end: str | None = None, start: str = "") -> None:
+def log_minus(text: str, end: str | None = None, start: str = "", force: bool = False) -> None:
     if get_quiet():
         return
-    colors.minus(text, end=end, start=start)
+    colors.minus(text, end=end, start=start, force=force)
 
 
-def log_question(text: str, end: str | None = None, start: str = "") -> None:
+def log_question(text: str, end: str | None = None, start: str = "", force: bool = False) -> None:
     if get_quiet():
         return
-    colors.question(text, end=end, start=start)
+    colors.question(text, end=end, start=start, force=force)
 
 
-def log_step(text: str, end: str | None = None, start: str = "") -> None:
+def log_step(text: str, end: str | None = None, start: str = "", force: bool = False) -> None:
     if get_quiet():
         return
-    colors.step(text, end=end, start=start)
+    colors.step(text, end=end, start=start, force=force)
 
 
-def log_wait(text: str, end: str | None = None, start: str = "") -> None:
+def log_wait(text: str, end: str | None = None, start: str = "", force: bool = False) -> None:
     if get_quiet():
         return
-    colors.wait(text, end=end, start=start)
+    colors.wait(text, end=end, start=start, force=force)
