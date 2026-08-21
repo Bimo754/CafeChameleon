@@ -178,14 +178,10 @@ def parse_arguments(args=None):
     wifi_mut.add_argument("-s", "--status", action="store_true", help="Show Wi-Fi & lock status")
     wifi_mut.add_argument(
         "-m", "--mac", nargs="*", metavar="MAC",
-        help="Change MAC address to specified MAC, randomize if omitted, or show MAC info ('show')"
+        help="Show MAC info if omitted ('-m'), randomize ('random'), reset to HW default ('reset'), or set specific MAC"
     )
     wifi_mut.add_argument(
-        "-r", "--reset-mac", nargs="*", metavar="PROFILE",
-        help="Reset MAC address to default"
-    )
-    wifi_mut.add_argument(
-        "--release", nargs="*", metavar="INTERFACE",
+        "-r", "--release", nargs="*", metavar="INTERFACE",
         help="Release and unlock wireless interface (stop monitor mode, dhclient, and restore NetworkManager)"
     )
     wifi_mut.add_argument(

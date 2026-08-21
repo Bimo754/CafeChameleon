@@ -243,10 +243,15 @@ class TestCliMacFlags:
             args = parse_arguments()
             assert getattr(args, "original_mac", False) is False
 
-    def test_cli_wifi_reset_mac_flag(self):
+    def test_cli_wifi_release_short_flag(self):
         with patch("sys.argv", ["main.py", "wifi", "-r"]):
             args = parse_arguments()
-            assert getattr(args, "reset_mac", None) is not None
+            assert getattr(args, "release", None) == []
+
+    def test_cli_wifi_reset_mac_arg(self):
+        with patch("sys.argv", ["main.py", "wifi", "-m", "reset"]):
+            args = parse_arguments()
+            assert getattr(args, "mac", None) == ["reset"]
 
     def test_cli_wifi_mac_flag_no_args(self):
         with patch("sys.argv", ["main.py", "wifi", "-m"]):
@@ -376,13 +381,31 @@ class TestWifiMacController:
         run_wifi(args)
         mock_show_mac.assert_called_once_with(interface=None, profile="GSBWIFI 2")
 
-    @patch("cafe_chameleon.modes.wifi.controller.change_mac")
-    def test_run_wifi_mac_random(self, mock_change_mac):
-        """Test wifi --mac with no args passes None to change_mac."""
+    @patch("cafe_chameleon.modes.wifi.controller.reset_mac")
+    def test_run_wifi_mac_reset(self, mock_reset_mac):
+        """Test wifi -m reset calls reset_mac."""
         from cafe_chameleon.modes.wifi.controller import run_wifi
         import argparse
 
-        mock_change_mac.return_value = True
+        mock_reset_mac.return_value = True
+        args = argparse.Namespace(
+            status=False,
+            lock=None,
+            auto=None,
+            reset_mac=None,
+            release=None,
+            mac=["reset"]
+        )
+        run_wifi(args)
+        mock_reset_mac.assert_called_once_with(None)
+
+    @patch("cafe_chameleon.modes.wifi.controller.show_mac")
+    def test_run_wifi_mac_omitted_shows_mac(self, mock_show_mac):
+        """Test wifi --mac with no args defaults to calling show_mac."""
+        from cafe_chameleon.modes.wifi.controller import run_wifi
+        import argparse
+
+        mock_show_mac.return_value = True
         args = argparse.Namespace(
             status=False,
             lock=None,
@@ -392,11 +415,29 @@ class TestWifiMacController:
             mac=[]
         )
         run_wifi(args)
+        mock_show_mac.assert_called_once_with(interface=None, profile=None)
+
+    @patch("cafe_chameleon.modes.wifi.controller.change_mac")
+    def test_run_wifi_mac_random(self, mock_change_mac):
+        """Test wifi --mac random calls change_mac with None to randomize MAC."""
+        from cafe_chameleon.modes.wifi.controller import run_wifi
+        import argparse
+
+        mock_change_mac.return_value = True
+        args = argparse.Namespace(
+            status=False,
+            lock=None,
+            auto=None,
+            reset_mac=None,
+            release=None,
+            mac=["random"]
+        )
+        run_wifi(args)
         mock_change_mac.assert_called_once_with(None, None)
 
     @patch("cafe_chameleon.modes.wifi.controller.change_mac")
-    def test_run_wifi_mac_explicit(self, mock_change_mac):
-        """Test wifi --mac with specific MAC address."""
+    def test_run_wifi_mac_random_with_profile(self, mock_change_mac):
+        """Test wifi --mac random MyProfile passes profile to change_mac."""
         from cafe_chameleon.modes.wifi.controller import run_wifi
         import argparse
 
@@ -407,46 +448,10 @@ class TestWifiMacController:
             auto=None,
             reset_mac=None,
             release=None,
-            mac=["00:11:22:33:44:55"]
+            mac=["random", "MyProfile"]
         )
         run_wifi(args)
-        mock_change_mac.assert_called_once_with("00:11:22:33:44:55", None)
-
-    @patch("cafe_chameleon.modes.wifi.controller.change_mac")
-    def test_run_wifi_mac_with_profile(self, mock_change_mac):
-        """Test wifi --mac with MAC and profile name."""
-        from cafe_chameleon.modes.wifi.controller import run_wifi
-        import argparse
-
-        mock_change_mac.return_value = True
-        args = argparse.Namespace(
-            status=False,
-            lock=None,
-            auto=None,
-            reset_mac=None,
-            release=None,
-            mac=["00:11:22:33:44:55", "TestProfile"]
-        )
-        run_wifi(args)
-        mock_change_mac.assert_called_once_with("00:11:22:33:44:55", "TestProfile")
-
-    @patch("cafe_chameleon.modes.wifi.controller.change_mac")
-    def test_run_wifi_mac_profile_only(self, mock_change_mac):
-        """Test wifi --mac with profile only randomizes MAC on that profile."""
-        from cafe_chameleon.modes.wifi.controller import run_wifi
-        import argparse
-
-        mock_change_mac.return_value = True
-        args = argparse.Namespace(
-            status=False,
-            lock=None,
-            auto=None,
-            reset_mac=None,
-            release=None,
-            mac=["TestProfile"]
-        )
-        run_wifi(args)
-        mock_change_mac.assert_called_once_with(None, "TestProfile")
+        mock_change_mac.assert_called_once_with(None, "MyProfile")
 
     @patch("cafe_chameleon.modes.wifi.controller.change_mac")
     def test_run_wifi_mac_with_multiword_profile(self, mock_change_mac):
@@ -520,9 +525,27 @@ class TestWifiMacController:
         run_wifi(args)
         mock_change_mac.assert_called_once_with("3e:4a:47:f6:c9:02", "GSBWIFI 2")
 
+    @patch("cafe_chameleon.modes.wifi.controller.show_mac")
+    def test_run_wifi_mac_unquoted_multiword_profile_show(self, mock_show_mac):
+        """Test wifi --mac GSBWIFI 2 (unquoted profile only, shows MAC for profile)."""
+        from cafe_chameleon.modes.wifi.controller import run_wifi
+        import argparse
+
+        mock_show_mac.return_value = True
+        args = argparse.Namespace(
+            status=False,
+            lock=None,
+            auto=None,
+            reset_mac=None,
+            release=None,
+            mac=["GSBWIFI", "2"]
+        )
+        run_wifi(args)
+        mock_show_mac.assert_called_once_with(interface=None, profile="GSBWIFI 2")
+
     @patch("cafe_chameleon.modes.wifi.controller.change_mac")
-    def test_run_wifi_mac_unquoted_multiword_profile_only(self, mock_change_mac):
-        """Test wifi --mac GSBWIFI 2 (unquoted profile only, randomizes MAC)."""
+    def test_run_wifi_mac_random_unquoted_multiword_profile(self, mock_change_mac):
+        """Test wifi --mac random GSBWIFI 2 (randomizes MAC for multiword profile)."""
         from cafe_chameleon.modes.wifi.controller import run_wifi
         import argparse
 
@@ -533,7 +556,7 @@ class TestWifiMacController:
             auto=None,
             reset_mac=None,
             release=None,
-            mac=["GSBWIFI", "2"]
+            mac=["random", "GSBWIFI", "2"]
         )
         run_wifi(args)
         mock_change_mac.assert_called_once_with(None, "GSBWIFI 2")

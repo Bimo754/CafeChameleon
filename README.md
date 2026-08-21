@@ -205,11 +205,11 @@ python3 main.py wifi -l 08:FA:28:56:27:80
 # Auto-roam to the strongest Access Point on the active profile
 python3 main.py wifi -a
 
-# Randomize MAC address on active connection
+# Display current set MAC address and permanent hardware MAC address
 sudo python3 main.py wifi -m
 
-# Display current set MAC address and permanent hardware MAC address
-sudo python3 main.py wifi --mac show
+# Randomize MAC address on active connection
+sudo python3 main.py wifi -m random
 
 # Set a specific MAC address on active connection
 sudo python3 main.py wifi -m 00:11:22:33:44:55
@@ -218,10 +218,10 @@ sudo python3 main.py wifi -m 00:11:22:33:44:55
 sudo python3 main.py wifi --mac 00:11:22:33:44:55 "MyWiFiProfile"
 
 # Reset interface MAC address to permanent factory default
-sudo python3 main.py wifi -r
+sudo python3 main.py wifi -m reset
 
 # Release & unlock interface (teardown monitor mode, stop lingering dhclient, restore NetworkManager)
-sudo python3 main.py wifi --release
+sudo python3 main.py wifi -r
 
 # Reconnect to already connected BSSID with active MAC and IP address
 sudo python3 main.py wifi --reconnect

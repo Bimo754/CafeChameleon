@@ -57,67 +57,64 @@ def run_wifi(args) -> None:
         restore_auto(profile)
     elif getattr(args, "mac", None) is not None:
         mac_args = args.mac
-        show_action = any(a.lower() in ("show", "list", "ls", "info", "status", "get") for a in mac_args)
-        if show_action:
-            non_show = [a for a in mac_args if a.lower() not in ("show", "list", "ls", "info", "status", "get")]
-            target_iface = None
-            target_prof = None
-            if len(non_show) == 1:
-                arg = non_show[0]
-                if arg.startswith(("wlan", "wlp", "eth", "en", "mon")):
-                    target_iface = arg
-                else:
-                    target_prof = arg
-            elif len(non_show) >= 2:
-                iface_idx = None
-                for idx, arg in enumerate(non_show):
-                    if arg.startswith(("wlan", "wlp", "eth", "en", "mon")):
-                        iface_idx = idx
-                        break
-                if iface_idx is not None:
-                    target_iface = non_show[iface_idx]
-                    prof_parts = [a for i, a in enumerate(non_show) if i != iface_idx]
-                    target_prof = " ".join(prof_parts).strip() if prof_parts else None
-                else:
-                    target_prof = " ".join(non_show).strip() if non_show else None
 
-            if not show_mac(interface=target_iface, profile=target_prof):
+        # 1. Check for random MAC action ('random', 'rand', 'rnd')
+        random_action = any(a.lower() in ("random", "rand", "rnd") for a in mac_args)
+        if random_action:
+            non_rand = [a for a in mac_args if a.lower() not in ("random", "rand", "rnd")]
+            profile = " ".join(non_rand).strip() if non_rand else None
+            if not change_mac(None, profile):
                 sys.exit(1)
             return
 
-        target_mac = None
-        profile = None
-        if len(mac_args) == 0:
-            target_mac = None
-            profile = None
-        elif len(mac_args) == 1:
-            arg = mac_args[0]
-            if is_valid_mac(arg):
-                target_mac = arg
-            elif ":" in arg or "-" in arg:
-                target_mac = arg
-            else:
-                profile = arg
-        else:
-            mac_idx = None
-            for idx, arg in enumerate(mac_args):
-                if is_valid_mac(arg):
-                    mac_idx = idx
-                    break
-            if mac_idx is None:
-                for idx, arg in enumerate(mac_args):
-                    if ":" in arg or "-" in arg:
-                        mac_idx = idx
-                        break
-            if mac_idx is not None:
-                target_mac = mac_args[mac_idx]
-                prof_parts = [a for i, a in enumerate(mac_args) if i != mac_idx]
-                profile = " ".join(prof_parts).strip() if prof_parts else None
-            else:
-                target_mac = None
-                profile = " ".join(mac_args).strip() if mac_args else None
+        # 2. Check for reset MAC action ('reset', 'reset-mac', 'restore', 'default')
+        reset_action = any(a.lower() in ("reset", "reset-mac", "restore", "default") for a in mac_args)
+        if reset_action:
+            non_reset = [a for a in mac_args if a.lower() not in ("reset", "reset-mac", "restore", "default")]
+            profile = " ".join(non_reset).strip() if non_reset else None
+            if not reset_mac(profile):
+                sys.exit(1)
+            return
 
-        if not change_mac(target_mac, profile):
+        # 3. Check if a valid MAC address is passed in mac_args
+        target_mac = None
+        for arg in mac_args:
+            if is_valid_mac(arg) or ":" in arg or "-" in arg:
+                target_mac = arg
+                break
+
+        if target_mac:
+            mac_idx = mac_args.index(target_mac)
+            prof_parts = [a for i, a in enumerate(mac_args) if i != mac_idx]
+            profile = " ".join(prof_parts).strip() if prof_parts else None
+            if not change_mac(target_mac, profile):
+                sys.exit(1)
+            return
+
+        # 4. Default action when omitted or when interface/profile provided: Show MAC info ('wifi -m')
+        non_show = [a for a in mac_args if a.lower() not in ("show", "list", "ls", "info", "status", "get")]
+        target_iface = None
+        target_prof = None
+        if len(non_show) == 1:
+            arg = non_show[0]
+            if arg.startswith(("wlan", "wlp", "eth", "en", "mon")):
+                target_iface = arg
+            else:
+                target_prof = arg
+        elif len(non_show) >= 2:
+            iface_idx = None
+            for idx, arg in enumerate(non_show):
+                if arg.startswith(("wlan", "wlp", "eth", "en", "mon")):
+                    iface_idx = idx
+                    break
+            if iface_idx is not None:
+                target_iface = non_show[iface_idx]
+                prof_parts = [a for i, a in enumerate(non_show) if i != iface_idx]
+                target_prof = " ".join(prof_parts).strip() if prof_parts else None
+            else:
+                target_prof = " ".join(non_show).strip() if non_show else None
+
+        if not show_mac(interface=target_iface, profile=target_prof):
             sys.exit(1)
     elif getattr(args, "reset_mac", None) is not None:
         reset_args = args.reset_mac
@@ -167,5 +164,5 @@ def run_wifi(args) -> None:
         if not share_wifi_hotspot(hotspot_name=hotspot_name, password=hotspot_pass, interface=iface):
             sys.exit(1)
     else:
-        log_minus("No wifi action specified. Use --scan, --status, --lock, --auto, --mac, --reset-mac, --release, --reconnect, or --share.")
+        log_minus("No wifi action specified. Use --scan, --status, --lock, --auto, --mac (-m reset/-m show), --release (-r), --reconnect, or --share.")
         sys.exit(1)

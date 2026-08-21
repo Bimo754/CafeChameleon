@@ -87,6 +87,12 @@ class TestWifiRelease(unittest.TestCase):
         self.assertEqual(args.command, "wifi")
         self.assertEqual(args.release, [])
 
+    @patch("sys.argv", ["main.py", "wifi", "-r"])
+    def test_cli_parser_release_short_flag(self):
+        args = parse_arguments()
+        self.assertEqual(args.command, "wifi")
+        self.assertEqual(args.release, [])
+
     @patch("sys.argv", ["main.py", "wifi", "-l"])
     def test_cli_parser_lock_short_flag(self):
         args = parse_arguments()
