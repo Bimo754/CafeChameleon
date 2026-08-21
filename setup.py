@@ -17,6 +17,7 @@ setup(
     ],
     entry_points={
         "console_scripts": [
+            "cafechameleon=main:main",
             "cafe-chameleon=main:main",
         ],
     },

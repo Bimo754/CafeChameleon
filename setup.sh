@@ -99,17 +99,21 @@ python3 -m pip install --upgrade scapy pytest --break-system-packages 2>/dev/nul
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MAIN_PATH="${SCRIPT_DIR}/main.py"
-BIN_LINK="/usr/local/bin/cafe-chameleon"
+BIN_LINK_1="/usr/local/bin/cafechameleon"
+BIN_LINK_2="/usr/local/bin/cafe-chameleon"
 
 if [ -f "$MAIN_PATH" ]; then
     chmod +x "$MAIN_PATH"
-    echo -e "\n${BOLD}${YELLOW}[+] Creating global CLI symlink -> ${BIN_LINK}${RESET}"
-    ln -sf "$MAIN_PATH" "$BIN_LINK"
+    echo -e "\n${BOLD}${YELLOW}[+] Creating global CLI symlinks...${RESET}"
+    ln -sf "$MAIN_PATH" "$BIN_LINK_1"
+    ln -sf "$MAIN_PATH" "$BIN_LINK_2"
+    echo -e "    -> ${GREEN}${BIN_LINK_1}${RESET}"
+    echo -e "    -> ${GREEN}${BIN_LINK_2}${RESET}"
 fi
 
 echo -e "\n${BOLD}${CYAN}────────────────────────────────────────────────────────────────────────${RESET}"
 echo -e "${BOLD}${GREEN}[+] CafeChameleon setup completed successfully!${RESET}"
-echo -e "${BOLD}${GREEN}[+] You can now run the tool using:${RESET}"
-echo -e "    ${BOLD}sudo cafe-chameleon --help${RESET}"
-echo -e "    ${BOLD}sudo python3 main.py simple${RESET}"
+echo -e "${BOLD}${GREEN}[+] You can now run the tool globally using either command:${RESET}"
+echo -e "    ${BOLD}sudo cafechameleon wifi --status${RESET}"
+echo -e "    ${BOLD}sudo cafe-chameleon simple${RESET}"
 echo -e "${BOLD}${CYAN}────────────────────────────────────────────────────────────────────────${RESET}\n"
