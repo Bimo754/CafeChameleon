@@ -119,7 +119,16 @@ def test_air_client_targets(
         return False, False
 
     ordered_clients = sort_clients_by_activity(new_air_clients, air_clients_map=air_clients_map)
-    active_count = sum(1 for m in ordered_clients if is_client_active(m, air_clients_map))
+    active_targets = {m: ip for m, ip in ordered_clients.items() if is_client_active(m, air_clients_map)}
+    non_active_targets = {m: ip for m, ip in ordered_clients.items() if not is_client_active(m, air_clients_map)}
+
+    max_non_active = 15
+    if len(non_active_targets) > max_non_active:
+        limited_non_active = dict(list(non_active_targets.items())[:max_non_active])
+        log_main(f"  [*] Capping non-active target testing to {max_non_active} (omitted {len(non_active_targets) - max_non_active} idle targets).")
+        ordered_clients = {**active_targets, **limited_non_active}
+
+    active_count = len(active_targets)
     active_info = f" ({active_count} active)" if active_count > 0 else ""
 
     log_step(f"Testing {len(ordered_clients)} air target(s){active_info}...")

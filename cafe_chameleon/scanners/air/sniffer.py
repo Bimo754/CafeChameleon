@@ -67,21 +67,35 @@ def format_air_panel(
     if not clients_dict:
         lines.append("  (No clients captured yet...)")
     else:
-        # Sort clients: active clients first, then alphabetically by MAC
-        sorted_clients = sorted(
-            clients_dict.items(),
-            key=lambda item: (not bool(item[1].get("active") if isinstance(item[1], dict) else False), item[0])
-        )
-        for idx, (client_mac, meta) in enumerate(sorted_clients, start=1):
-            if isinstance(meta, dict):
-                ap_bssid = meta.get("bssid") or "N/A"
-                is_active = bool(meta.get("active", False))
+        active_clients = []
+        non_active_clients = []
+        for client_mac, meta in clients_dict.items():
+            is_active = bool(meta.get("active", False)) if isinstance(meta, dict) else False
+            if is_active:
+                active_clients.append((client_mac, meta))
             else:
-                ap_bssid = str(meta) if meta else "N/A"
-                is_active = False
+                non_active_clients.append((client_mac, meta))
 
-            active_colored = "\033[1;32mTrue\033[0m" if is_active else "\033[37mFalse\033[0m"
-            lines.append(f" {idx:<3} {client_mac:<20} {ap_bssid:<20} {active_colored}")
+        active_clients.sort(key=lambda item: item[0])
+        non_active_clients.sort(key=lambda item: item[0])
+
+        max_non_active = 15
+        displayed_non_active = non_active_clients[:max_non_active]
+        hidden_count = len(non_active_clients) - len(displayed_non_active)
+
+        idx = 1
+        for client_mac, meta in active_clients:
+            ap_bssid = meta.get("bssid") or "N/A" if isinstance(meta, dict) else (str(meta) if meta else "N/A")
+            lines.append(f" {idx:<3} {client_mac:<20} {ap_bssid:<20} \033[1;32mTrue\033[0m")
+            idx += 1
+
+        for client_mac, meta in displayed_non_active:
+            ap_bssid = meta.get("bssid") or "N/A" if isinstance(meta, dict) else (str(meta) if meta else "N/A")
+            lines.append(f" {idx:<3} {client_mac:<20} {ap_bssid:<20} \033[37mFalse\033[0m")
+            idx += 1
+
+        if hidden_count > 0:
+            lines.append(f" ... (+{hidden_count} more non-active target(s) omitted)")
 
     lines.append("\033[1;30m────────────────────────────────────────────────────────\033[0m")
     return "\n".join(lines)

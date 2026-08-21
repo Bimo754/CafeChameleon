@@ -399,6 +399,15 @@ class TestAirSnifferPanelAndTimer(unittest.TestCase):
         timer.stop()
         self.assertGreater(len(ticks), 0)
 
+    def test_format_air_panel_caps_non_active_targets_at_15(self):
+        metadata = {
+            f"aa:bb:cc:00:00:{i:02x}": {"bssid": "00:11:22:33:44:01", "active": False}
+            for i in range(25)
+        }
+        panel = format_air_panel(metadata, mode="Monitor", remaining="10s", duration=15)
+        self.assertIn("more non-active target(s) omitted", panel)
+        self.assertIn("10 more non-active target(s) omitted", panel)
+
 
 if __name__ == "__main__":
     unittest.main()
