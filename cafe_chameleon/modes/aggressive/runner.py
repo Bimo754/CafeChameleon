@@ -259,8 +259,11 @@ def run_aggressive(args) -> bool:
 
                     msg = f"[{idx}/{len(ranked_bssids)}] Target: {target_bssid} (Sig: {signal_pct}%, Ch: {chan})"
                     log_info(msg)
-                    if not is_air_only and not any_bssid_mode:
-                        log_main(f"\n[{idx}/{len(ranked_bssids)}] Target {target_bssid} ({signal_pct}%, Ch {chan})")
+                    if not is_air_only:
+                        if any_bssid_mode:
+                            log_main(f"[*] Connecting to {target_bssid}...")
+                        else:
+                            log_main(f"\n[{idx}/{len(ranked_bssids)}] Target {target_bssid} ({signal_pct}%, Ch {chan})")
 
                     if is_monitor_mode_active(interface):
                         set_managed_mode(interface)
@@ -423,8 +426,11 @@ def run_aggressive(args) -> bool:
 
             msg = f"[{idx}/{len(bssids)}] Target: {target_bssid} (Sig: {signal_pct}%, Ch: {chan})"
             log_info(msg)
-            if not is_air_only and not any_bssid_mode:
-                log_main(f"\n[{idx}/{len(bssids)}] Target {target_bssid} ({signal_pct}%, Ch {chan})")
+            if not is_air_only:
+                if any_bssid_mode:
+                    log_main(f"[*] Connecting to {target_bssid}...")
+                else:
+                    log_main(f"\n[{idx}/{len(bssids)}] Target {target_bssid} ({signal_pct}%, Ch {chan})")
 
             if is_monitor_mode_active(interface):
                 set_managed_mode(interface)
