@@ -129,7 +129,7 @@ def verify_internet_connectivity(
     res = ConnectivityResult(state=ConnectivityState.UNKNOWN)
 
     # 1. Gateway reachability check
-    if ping_gateway or gateway_ip:
+    if ping_gateway:
         gw_ok = wait_for_gateway_pong(gateway_ip=gateway_ip, interface=interface, timeout=gateway_timeout)
         res.gateway_reachable = gw_ok
         if not gw_ok and strict:
@@ -142,12 +142,18 @@ def verify_internet_connectivity(
     # 2. Fast-track non-strict mode check via raw sockets
     if not strict:
         socket_ok = False
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(PUBLIC_DNS_ENDPOINTS)) as executor:
-            sock_futures = [executor.submit(_probe_socket, ep, min(1.0, timeout)) for ep in PUBLIC_DNS_ENDPOINTS]
-            for future in concurrent.futures.as_completed(sock_futures):
+        exec_sock = concurrent.futures.ThreadPoolExecutor(max_workers=len(PUBLIC_DNS_ENDPOINTS))
+        try:
+            sock_futures = [exec_sock.submit(_probe_socket, ep, min(0.6, timeout)) for ep in PUBLIC_DNS_ENDPOINTS]
+            for future in concurrent.futures.as_completed(sock_futures, timeout=min(0.8, timeout)):
                 if future.result():
                     socket_ok = True
                     break
+        except Exception:
+            pass
+        finally:
+            exec_sock.shutdown(wait=False, cancel_futures=True)
+
         if socket_ok:
             res.is_authenticated = True
             res.state = ConnectivityState.FULL_INTERNET
@@ -160,15 +166,16 @@ def verify_internet_connectivity(
             return res
 
     # 3. Concurrent Multi-Provider HTTP 204 & Captive Portal Probing
-    http_timeout = max(0.8, timeout)
+    http_timeout = min(1.0, max(0.6, timeout))
     portal_passed = False
     portal_detected = False
     verified_provider = None
     portal_url = None
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=len(CAPTIVE_PORTAL_ENDPOINTS)) as executor:
-        future_to_ep = {executor.submit(_probe_http_endpoint, ep, http_timeout): ep for ep in CAPTIVE_PORTAL_ENDPOINTS}
-        for future in concurrent.futures.as_completed(future_to_ep):
+    exec_http = concurrent.futures.ThreadPoolExecutor(max_workers=len(CAPTIVE_PORTAL_ENDPOINTS))
+    try:
+        future_to_ep = {exec_http.submit(_probe_http_endpoint, ep, http_timeout): ep for ep in CAPTIVE_PORTAL_ENDPOINTS}
+        for future in concurrent.futures.as_completed(future_to_ep, timeout=http_timeout + 0.3):
             try:
                 auth_ok, is_portal, prov_or_url = future.result()
                 if auth_ok:
@@ -182,6 +189,10 @@ def verify_internet_connectivity(
                         portal_url = prov_or_url
             except Exception:
                 pass
+    except Exception:
+        pass
+    finally:
+        exec_http.shutdown(wait=False, cancel_futures=True)
 
     res.is_authenticated = portal_passed
     res.portal_detected = portal_detected
@@ -190,14 +201,18 @@ def verify_internet_connectivity(
 
     # 4. Supplementary Low-Level Socket and DNS Probing
     if not portal_passed:
-        # Fast raw socket check
         socket_ok = False
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(PUBLIC_DNS_ENDPOINTS)) as executor:
-            sock_futures = [executor.submit(_probe_socket, ep, min(1.0, timeout)) for ep in PUBLIC_DNS_ENDPOINTS]
-            for future in concurrent.futures.as_completed(sock_futures):
+        exec_supp = concurrent.futures.ThreadPoolExecutor(max_workers=len(PUBLIC_DNS_ENDPOINTS))
+        try:
+            sock_futures = [exec_supp.submit(_probe_socket, ep, min(0.6, timeout)) for ep in PUBLIC_DNS_ENDPOINTS]
+            for future in concurrent.futures.as_completed(sock_futures, timeout=min(0.8, timeout)):
                 if future.result():
                     socket_ok = True
                     break
+        except Exception:
+            pass
+        finally:
+            exec_supp.shutdown(wait=False, cancel_futures=True)
 
         if socket_ok or (res.nmcli_state == "full"):
             if not portal_detected and not strict:
@@ -206,12 +221,18 @@ def verify_internet_connectivity(
 
         if not portal_passed:
             dns_ok = False
-            with concurrent.futures.ThreadPoolExecutor(max_workers=len(DNS_TEST_DOMAINS)) as executor:
-                dns_futures = [executor.submit(_probe_dns_resolution, dom, min(1.0, timeout)) for dom in DNS_TEST_DOMAINS]
-                for future in concurrent.futures.as_completed(dns_futures):
+            exec_dns = concurrent.futures.ThreadPoolExecutor(max_workers=len(DNS_TEST_DOMAINS))
+            try:
+                dns_futures = [exec_dns.submit(_probe_dns_resolution, dom, min(0.8, timeout)) for dom in DNS_TEST_DOMAINS]
+                for future in concurrent.futures.as_completed(dns_futures, timeout=min(1.0, timeout)):
                     if future.result():
                         dns_ok = True
                         break
+            except Exception:
+                pass
+            finally:
+                exec_dns.shutdown(wait=False, cancel_futures=True)
+
             res.dns_working = dns_ok
             if dns_ok and not portal_detected and not strict:
                 portal_passed = True

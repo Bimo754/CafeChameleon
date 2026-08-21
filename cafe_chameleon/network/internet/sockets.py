@@ -16,7 +16,7 @@ def _probe_dns_resolution(domain: str, timeout: float = 1.5) -> bool:
     """
     Standard OS DNS resolution probe using socket.getaddrinfo.
     Returns True if domain resolves to at least one valid IP address.
-    Thread-safe without process-wide socket state mutation.
+    Thread-safe without process-wide socket state mutation or thread pool blocking.
     """
     def _resolve():
         try:
@@ -25,12 +25,14 @@ def _probe_dns_resolution(domain: str, timeout: float = 1.5) -> bool:
         except (socket.gaierror, socket.error, OSError):
             return False
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    try:
         future = executor.submit(_resolve)
-        try:
-            return future.result(timeout=timeout)
-        except concurrent.futures.TimeoutError:
-            return False
+        return future.result(timeout=timeout)
+    except (concurrent.futures.TimeoutError, Exception):
+        return False
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
 
 
 def _probe_udp_dns(server_ip: str, domain: str = "google.com", timeout: float = 1.0) -> bool:
