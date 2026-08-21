@@ -101,20 +101,32 @@ def test_log_main_verbose_filtering(capsys):
     assert "Detailed debug log" in captured_verbose
 
 
-def test_operational_logs_verbose_filtering(capsys):
-    """Verify step-by-step operational chatter is suppressed without -v and displayed with -v."""
+def test_colors_logging_primitives_launcher_vs_utility_mode(capsys):
+    """Verify logging primitives are suppressed in launcher mode without -v, but print in utility mode (wifi/blacklist)."""
+    # 1. Launcher Mode (simple / aggressive) without -v -> Suppressed
+    set_launcher_mode(True)
     set_verbose(False)
-    log_step("Setting MAC 00:11:22:33:44:55")
+    log_info("Target info")
+    log_step("Setting MAC")
     log_wait("Reconnecting profile")
-    log_plus("MAC address changed to 00:11:22:33:44:55", force=True)
-    captured_non_verbose = capsys.readouterr().out
-    assert "Setting MAC" not in captured_non_verbose
-    assert "Reconnecting profile" not in captured_non_verbose
-    assert "MAC address changed to 00:11:22:33:44:55" in captured_non_verbose
+    captured_launcher = capsys.readouterr().out
+    assert captured_launcher == ""
 
+    # 2. Launcher Mode with -v -> Printed
     set_verbose(True)
-    log_step("Setting MAC 00:11:22:33:44:55")
+    log_info("Target info")
+    log_step("Setting MAC")
     log_wait("Reconnecting profile")
-    captured_verbose = capsys.readouterr().out
-    assert "Setting MAC 00:11:22:33:44:55" in captured_verbose
-    assert "Reconnecting profile" in captured_verbose
+    captured_launcher_verbose = capsys.readouterr().out
+    assert "Target info" in captured_launcher_verbose
+    assert "Setting MAC" in captured_launcher_verbose
+    assert "Reconnecting profile" in captured_launcher_verbose
+
+    # 3. Utility Subcommand Mode (wifi / blacklist) without -v -> Printed
+    set_launcher_mode(False)
+    set_verbose(False)
+    log_step("Releasing interface")
+    log_plus("Interface released")
+    captured_utility = capsys.readouterr().out
+    assert "Releasing interface" in captured_utility
+    assert "Interface released" in captured_utility
