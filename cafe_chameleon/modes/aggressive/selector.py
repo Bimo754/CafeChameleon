@@ -110,9 +110,6 @@ def display_and_select_bssid(
         )
 
     if not select_requested:
-        if not is_air_only:
-            table_output = format_bssid_table(bssids, air_clients_map, "AUTO-RANKED BSSID TARGETS")
-            log_main(table_output, clear=True)
         return bssids
 
     # If direct selection string was provided via CLI (e.g. -s 1,2,7 or -s 1-10,12)
