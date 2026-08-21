@@ -237,8 +237,11 @@ def has_internet(
     """
     if ping_gateway or gateway_ip:
         gw_ok = wait_for_gateway_pong(gateway_ip=gateway_ip, interface=interface, timeout=gateway_timeout)
-        if not gw_ok:
-            return False
+        # If gateway pong succeeds, we proceed to fast socket / HTTP check.
+        # If gateway pong fails, we do not short-circuit to False immediately;
+        # we allow socket & HTTP probes to run in case gateway drops ICMP packets.
+    else:
+        gw_ok = True
 
     # Low-level socket check for fast fallback compatibility
     probe_timeout = min(timeout, 0.8)

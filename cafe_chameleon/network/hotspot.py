@@ -64,12 +64,29 @@ def check_ap_mode_support(interface: str = "wlan0") -> tuple[bool, str]:
         return True, f"Interface '{interface}' supports AP mode (concurrency not explicitly advertised)."
 
 
+def is_hotspot_active(ap_iface: str = "ap0") -> bool:
+    """Checks whether a Wi-Fi hotspot (create_ap or ap0 interface) is currently active."""
+    rc, iw_dev = _run(["iw", "dev"], debug=False)
+    if rc == 0 and ap_iface in iw_dev:
+        return True
+
+    rc, pgrep_out = _run(["pgrep", "-f", "create_ap"], debug=False)
+    if rc == 0 and pgrep_out and pgrep_out.strip():
+        return True
+
+    return False
+
+
 def clean_hotspot_interfaces(ap_iface: str = "ap0", parent_iface: str = "wlan0") -> None:
     """Cleans up leftover hotspot virtual devices and restores NetworkManager settings."""
     trace(f"[FEATURE] Cleaning hotspot interface {ap_iface} and restoring {parent_iface}")
     # Stop create_ap instance if running
     if shutil.which("create_ap"):
         _run(["create_ap", "--stop", ap_iface], debug=False)
+
+    # Kill lingering dnsmasq or hostapd processes managing ap_iface
+    _run(["pkill", "-f", f"dnsmasq.*{ap_iface}"], debug=False)
+    _run(["pkill", "-f", f"hostapd.*{ap_iface}"], debug=False)
 
     # Delete virtual interface ap0 if it exists
     rc, iw_dev = _run(["iw", "dev"], debug=False)
@@ -183,6 +200,8 @@ def share_wifi_hotspot(
     proc = None
     try:
         proc = subprocess.Popen(cmd)
+        time.sleep(0.5)
+        _run(["nmcli", "device", "set", "ap0", "managed", "no"], debug=False)
         proc.wait()
         return proc.returncode == 0
     except KeyboardInterrupt:

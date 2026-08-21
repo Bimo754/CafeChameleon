@@ -147,17 +147,31 @@ class TestInternetGatewayPing(unittest.TestCase):
             self.assertTrue(result)
             mock_gw_pong.assert_called_once_with(gateway_ip="10.55.12.1", interface="wlan0", timeout=2.0)
 
+    @patch("urllib.request.urlopen", side_effect=OSError("Network unreachable"))
     @patch("cafe_chameleon.network.internet.checker.wait_for_gateway_pong")
     @patch("cafe_chameleon.network.internet.checker._probe_socket")
-    def test_has_internet_gateway_ping_fails_early(self, mock_probe, mock_gw_pong):
+    def test_has_internet_gateway_ping_fails_early(self, mock_probe, mock_gw_pong, mock_url):
         mock_gw_pong.return_value = False
+        mock_probe.return_value = False
         result = has_internet(
             timeout=0.5,
             gateway_ip="10.55.12.1",
             ping_gateway=True
         )
         self.assertFalse(result)
-        mock_probe.assert_not_called()
+
+    @patch("cafe_chameleon.network.internet.checker.wait_for_gateway_pong")
+    @patch("cafe_chameleon.network.internet.checker._probe_socket")
+    def test_has_internet_gateway_ping_fails_socket_fallback_success(self, mock_probe, mock_gw_pong):
+        mock_gw_pong.return_value = False
+        mock_probe.return_value = True
+        result = has_internet(
+            timeout=0.5,
+            strict=False,
+            gateway_ip="10.55.12.1",
+            ping_gateway=True
+        )
+        self.assertTrue(result)
 
     @patch("cafe_chameleon.network.hijack.impersonate.start_background_garp")
     @patch("cafe_chameleon.network.hijack.impersonate.send_gratuitous_arp")

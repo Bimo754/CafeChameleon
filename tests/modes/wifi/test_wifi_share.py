@@ -51,12 +51,16 @@ class TestWifiShare(unittest.TestCase):
     def test_clean_hotspot_interfaces(self, mock_which, mock_run):
         mock_run.side_effect = [
             (0, ""), # create_ap --stop ap0
+            (0, ""), # pkill dnsmasq
+            (0, ""), # pkill hostapd
             (0, "Interface ap0\nInterface wlan0"), # iw dev
             (0, ""), # iw dev ap0 del
             (0, ""), # nmcli device set wlan0 managed yes
         ]
         clean_hotspot_interfaces(ap_iface="ap0", parent_iface="wlan0")
         mock_run.assert_any_call(["create_ap", "--stop", "ap0"], debug=False)
+        mock_run.assert_any_call(["pkill", "-f", "dnsmasq.*ap0"], debug=False)
+        mock_run.assert_any_call(["pkill", "-f", "hostapd.*ap0"], debug=False)
         mock_run.assert_any_call(["iw", "dev", "ap0", "del"], debug=False)
         mock_run.assert_any_call(["nmcli", "device", "set", "wlan0", "managed", "yes"], debug=False)
 

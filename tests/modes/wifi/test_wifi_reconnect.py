@@ -594,6 +594,23 @@ class TestWifiReconnect(unittest.TestCase):
         mock_open.side_effect = lambda p, *a, **kw: io.StringIO("1\n")
         self.assertTrue(get_carrier_status("wlan0"))
 
+    @patch("cafe_chameleon.network.nmcli.reconnect.is_hotspot_active", return_value=True)
+    @patch("cafe_chameleon.network.nmcli.reconnect.get_carrier_status", return_value=True)
+    @patch("cafe_chameleon.network.nmcli.reconnect.soft_heal_connection", return_value=True)
+    def test_perform_reconnect_hotspot_active_soft_heals(self, mock_soft_heal, mock_carrier, mock_hotspot):
+        result = perform_reconnect(
+            profile="MyHotspot",
+            interface="wlan0",
+            bssid="00:11:22:33:44:55",
+            mac="aa:bb:cc:dd:ee:ff",
+            local_ip="192.168.1.100",
+            netmask="24",
+            broadcast="192.168.1.255",
+            gateway="192.168.1.1"
+        )
+        self.assertTrue(result)
+        mock_soft_heal.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

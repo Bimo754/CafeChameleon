@@ -19,6 +19,7 @@ from cafe_chameleon.network.sysfs import wait_for_carrier, get_carrier_status
 from cafe_chameleon.network.mac import get_current_mac, get_permanent_mac, is_valid_mac
 from cafe_chameleon.network.arp import send_gratuitous_arp, start_background_garp, pin_gateway_neighbor
 from cafe_chameleon.network.deauth import send_deauth
+from cafe_chameleon.network.hotspot import is_hotspot_active
 from cafe_chameleon.network.internet import has_internet, wait_for_gateway_pong
 from .profiles import get_active_profile, get_ssid_for_profile
 from .bssid import get_connected_bssid, scan_bssids_for_ssid
@@ -164,10 +165,7 @@ def soft_heal_connection(
             send_gratuitous_arp(interface, local_ip, gateway)
             if gateway_mac:
                 pin_gateway_neighbor(gateway, gateway_mac, interface)
-            gw_pong = wait_for_gateway_pong(gateway_ip=gateway, interface=interface, timeout=1.5)
-            if not gw_pong:
-                trace(f"[FEATURE] Soft heal gateway pong failed on {gateway}")
-                return False
+            wait_for_gateway_pong(gateway_ip=gateway, interface=interface, timeout=1.5)
 
     return has_internet(timeout=1.0, check_speed=False, gateway_ip=gateway, interface=interface, ping_gateway=False)
 
@@ -193,6 +191,14 @@ def perform_reconnect(
     if local_ip:
         gw_str = f" (Gateway: {gateway})" if gateway else ""
         log_info(f"IP Address  : {local_ip}/{netmask}{gw_str}")
+
+    # Check if a Wi-Fi hotspot is currently active on the interface
+    if is_hotspot_active():
+        trace(f"[FEATURE] Hotspot active during perform_reconnect on {interface}; attempting soft heal first")
+        if get_carrier_status(interface):
+            if soft_heal_connection(interface, local_ip, netmask, broadcast, gateway, gateway_mac):
+                log_plus(f"Hotspot active: Soft healed connection to BSSID {bssid} without disrupting AP.")
+                return True
 
     # If deauth mode is requested, send 802.11 deauth frames against competing client
     if enable_deauth:
