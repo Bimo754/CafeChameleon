@@ -133,16 +133,24 @@ CafeChameleon/
 ### System Requirements
 * **Operating System**: Linux (Kali Linux, Debian, Ubuntu, Arch Linux).
 * **Python**: Python 3.10 or higher.
-* **Required System Packages**:
-  ```bash
-  sudo apt update
-  sudo apt install -y python3-pip nmap iw wireless-tools net-tools network-manager xterm aircrack-ng mdk4
-  ```
 
-### Python Setup
+### Automated Setup (Recommended)
+Run the automated installation script to install all required Linux system tools (`nmap`, `iw`, `network-manager`, `xterm`, `aircrack-ng`, `mdk4`, `macchanger`, `dhcpcd`/`dhclient`, `ethtool`, `arping`), Python packages (`scapy`, `pytest`), and create a global `cafe-chameleon` CLI wrapper:
+
 ```bash
 git clone https://github.com/Bimo754/CafeChameleon.git
 cd CafeChameleon
+sudo ./setup.sh
+```
+
+### Manual Installation
+If you prefer installing dependencies manually:
+
+```bash
+# Debian / Ubuntu / Kali
+sudo apt update && sudo apt install -y python3-pip nmap iw wireless-tools net-tools network-manager xterm aircrack-ng mdk4 macchanger isc-dhcp-client ethtool arping
+
+# Python dependencies
 pip3 install scapy pytest
 ```
 
