@@ -22,10 +22,10 @@ def is_valid_client_mac(mac: str | None) -> bool:
     if (
         mac_clean == "ff:ff:ff:ff:ff:ff"
         or mac_clean == "00:00:00:00:00:00"
+        or mac_clean == "02:00:00:7c:4e:01"
         or mac_clean.startswith("01:00:5e")
         or mac_clean.startswith("33:33")
         or mac_clean.startswith("00:00:5e")
-        or mac_clean.startswith("02:00:00")
     ):
         return False
     try:
@@ -36,6 +36,25 @@ def is_valid_client_mac(mac: str | None) -> bool:
     except Exception:
         return False
     return True
+
+
+def match_target_bssid(addr: str | None, target_bssids_set: set[str]) -> str | None:
+    """
+    Matches a BSSID address against target_bssids_set.
+    First checks exact match, then checks 5-octet vendor/multi-BSSID prefix match.
+    """
+    if not addr or not isinstance(addr, str) or not target_bssids_set:
+        return None
+    addr_clean = addr.lower()
+    if addr_clean in target_bssids_set:
+        return addr_clean
+    if len(addr_clean) >= 14:
+        prefix = addr_clean[:14]
+        for tb in target_bssids_set:
+            if len(tb) >= 14 and tb[:14] == prefix:
+                return tb
+    return None
+
 
 
 def is_locally_administered_mac(mac: str | None) -> bool:
@@ -328,29 +347,27 @@ def parse_air_packet(
         if to_ds and not from_ds:
             # Client -> AP (Uplink Data)
             frame_priority = 3
-            if addr1 and addr1 in target_bssids_set:
-                matched_bssid = addr1
-                client_candidate = bootp_mac or addr2
-            elif addr3 and addr3 in target_bssids_set:
-                matched_bssid = addr3
+            m_bssid = match_target_bssid(addr1, target_bssids_set) or match_target_bssid(addr3, target_bssids_set)
+            if m_bssid:
+                matched_bssid = m_bssid
                 client_candidate = bootp_mac or addr2
         elif from_ds and not to_ds:
             # AP -> Client (Downlink Data)
             frame_priority = 3
-            if addr2 and addr2 in target_bssids_set:
-                matched_bssid = addr2
-                client_candidate = bootp_mac or addr1
-            elif addr3 and addr3 in target_bssids_set:
-                matched_bssid = addr3
+            m_bssid = match_target_bssid(addr2, target_bssids_set) or match_target_bssid(addr3, target_bssids_set)
+            if m_bssid:
+                matched_bssid = m_bssid
                 client_candidate = bootp_mac or addr1
         elif to_ds and from_ds:
             # WDS / Mesh frame
             frame_priority = 3
-            if addr1 in target_bssids_set:
-                matched_bssid = addr1
+            m1 = match_target_bssid(addr1, target_bssids_set)
+            m2 = match_target_bssid(addr2, target_bssids_set)
+            if m1:
+                matched_bssid = m1
                 client_candidate = bootp_mac or addr4 or addr2
-            elif addr2 in target_bssids_set:
-                matched_bssid = addr2
+            elif m2:
+                matched_bssid = m2
                 client_candidate = bootp_mac or addr3 or addr1
         else:
             # not to_ds and not from_ds (Management, Control, or Direct / IBSS Data)
@@ -358,47 +375,42 @@ def parse_air_packet(
                 # 802.11 Management frames
                 if subtype in (0, 2):
                     frame_priority = 2  # Assoc / Reassoc Req
-                    if addr1 and addr1 in target_bssids_set:
-                        matched_bssid = addr1
-                        client_candidate = bootp_mac or addr2
-                    elif addr3 and addr3 in target_bssids_set:
-                        matched_bssid = addr3
+                    m_bssid = match_target_bssid(addr1, target_bssids_set) or match_target_bssid(addr3, target_bssids_set)
+                    if m_bssid:
+                        matched_bssid = m_bssid
                         client_candidate = bootp_mac or addr2
                 elif subtype in (1, 3):
                     frame_priority = 2  # Assoc / Reassoc Resp
-                    if addr2 and addr2 in target_bssids_set:
-                        matched_bssid = addr2
-                        client_candidate = bootp_mac or addr1
-                    elif addr3 and addr3 in target_bssids_set:
-                        matched_bssid = addr3
+                    m_bssid = match_target_bssid(addr2, target_bssids_set) or match_target_bssid(addr3, target_bssids_set)
+                    if m_bssid:
+                        matched_bssid = m_bssid
                         client_candidate = bootp_mac or addr1
                 elif subtype == 5:
                     frame_priority = 1  # Probe Resp
-                    if addr2 and addr2 in target_bssids_set:
-                        matched_bssid = addr2
-                        client_candidate = bootp_mac or addr1
-                    elif addr3 and addr3 in target_bssids_set:
-                        matched_bssid = addr3
+                    m_bssid = match_target_bssid(addr2, target_bssids_set) or match_target_bssid(addr3, target_bssids_set)
+                    if m_bssid:
+                        matched_bssid = m_bssid
                         client_candidate = bootp_mac or addr1
                 elif subtype == 4:
                     frame_priority = 1  # Probe Req
-                    if addr1 and addr1 in target_bssids_set:
-                        matched_bssid = addr1
-                        client_candidate = bootp_mac or addr2
-                    elif addr3 and addr3 in target_bssids_set:
-                        matched_bssid = addr3
+                    m_bssid = match_target_bssid(addr1, target_bssids_set) or match_target_bssid(addr3, target_bssids_set)
+                    if m_bssid:
+                        matched_bssid = m_bssid
                         client_candidate = bootp_mac or addr2
                 elif subtype in (10, 11, 12, 13):
                     # Bi-directional management frames (Auth, Deauth, Disassoc, Action)
                     frame_priority = 2 if subtype == 11 else 1
-                    if addr1 and addr1 in target_bssids_set:
-                        matched_bssid = addr1
+                    m1 = match_target_bssid(addr1, target_bssids_set)
+                    m2 = match_target_bssid(addr2, target_bssids_set)
+                    m3 = match_target_bssid(addr3, target_bssids_set)
+                    if m1:
+                        matched_bssid = m1
                         client_candidate = bootp_mac or addr2
-                    elif addr2 and addr2 in target_bssids_set:
-                        matched_bssid = addr2
+                    elif m2:
+                        matched_bssid = m2
                         client_candidate = bootp_mac or addr1
-                    elif addr3 and addr3 in target_bssids_set:
-                        matched_bssid = addr3
+                    elif m3:
+                        matched_bssid = m3
                         if addr1 and addr1 != addr3:
                             client_candidate = bootp_mac or addr1
                         elif addr2 and addr2 != addr3:
@@ -408,25 +420,31 @@ def parse_air_packet(
                 # 802.11 Control frames
                 frame_priority = 1
                 if subtype in (8, 10, 11):
-                    if addr1 and addr1 in target_bssids_set:
-                        matched_bssid = addr1
+                    m1 = match_target_bssid(addr1, target_bssids_set)
+                    m2 = match_target_bssid(addr2, target_bssids_set)
+                    if m1:
+                        matched_bssid = m1
                         client_candidate = addr2
-                    elif addr2 and addr2 in target_bssids_set:
-                        matched_bssid = addr2
+                    elif m2:
+                        matched_bssid = m2
                         client_candidate = addr1
 
             elif dot11.type == 2:
                 # Direct / IBSS / Null Data
                 frame_priority = 3
-                if addr1 and addr1 in target_bssids_set:
-                    matched_bssid = addr1
+                m1 = match_target_bssid(addr1, target_bssids_set)
+                m2 = match_target_bssid(addr2, target_bssids_set)
+                m3 = match_target_bssid(addr3, target_bssids_set)
+                if m1:
+                    matched_bssid = m1
                     client_candidate = bootp_mac or addr2
-                elif addr2 and addr2 in target_bssids_set:
-                    matched_bssid = addr2
+                elif m2:
+                    matched_bssid = m2
                     client_candidate = bootp_mac or addr1
-                elif addr3 and addr3 in target_bssids_set:
-                    matched_bssid = addr3
+                elif m3:
+                    matched_bssid = m3
                     client_candidate = bootp_mac or (addr2 if addr2 and addr2 != addr3 else addr1)
+
 
         # Elevate priority to 3 if a valid client IP was parsed from payload
         if client_ip:

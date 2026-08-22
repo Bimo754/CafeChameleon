@@ -56,7 +56,7 @@ def passive_sniff_subnet(subnet_cidr, interface: str, duration: int = 30) -> lis
                         discovered[ip_cand] = mac_cand
 
     try:
-        bpf_filter = "arp or (ip and (broadcast or multicast))"
+        bpf_filter = "arp or ip"
         try:
             sniff(iface=interface, filter=bpf_filter, timeout=duration, prn=packet_callback, store=False)
         except Exception:
