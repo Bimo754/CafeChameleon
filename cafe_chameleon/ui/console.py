@@ -73,10 +73,10 @@ def log_subnet_scan(subnet: str) -> None:
 
 
 def log_hijack_attempt(ip: str, mac: str) -> None:
-    """Logs host hijacking attempt with even column spacing for the IP address."""
+    """Logs host hijacking attempt with clean single spacing."""
     clean_ip = str(ip).strip() if ip else "N/A"
     clean_mac = str(mac).strip() if mac else "N/A"
-    text = f"Trying to hijack {clean_ip:<15} - {clean_mac}"
+    text = f"Trying to hijack {clean_ip} - {clean_mac}"
     if is_xterm_running():
         XtermManager._instance.write("main", format_window_text("main", text), add_newline=True)
     if not get_quiet():
@@ -227,37 +227,47 @@ def get_user_input(prompt: str = "") -> str:
         return ""
 
 
-def log_info(text: str, end: str | None = None, start: str = "", force: bool = False) -> None:
+def log_info(text: str, end: str | None = None, start: str = "", force: bool = False, verbose_only: bool = False) -> None:
     if get_quiet():
+        return
+    if verbose_only and not get_verbose():
         return
     colors.info(text, end=end, start=start, force=force)
 
 
-def log_plus(text: str, end: str | None = None, start: str = "", force: bool = False) -> None:
+def log_plus(text: str, end: str | None = None, start: str = "", force: bool = False, verbose_only: bool = False) -> None:
     if get_quiet():
+        return
+    if verbose_only and not get_verbose():
         return
     colors.plus(text, end=end, start=start, force=force)
 
 
-def log_gplus(text: str, end: str | None = None, start: str = "", force: bool = False) -> None:
+def log_gplus(text: str, end: str | None = None, start: str = "", force: bool = False, verbose_only: bool = False) -> None:
     if get_quiet():
+        return
+    if verbose_only and not get_verbose():
         return
     colors.gplus(text, end=end, start=start, force=force)
 
 
-def log_warning(text: str, end: str | None = None, start: str = "", force: bool = False) -> None:
+def log_warning(text: str, end: str | None = None, start: str = "", force: bool = False, verbose_only: bool = False) -> None:
     if get_quiet():
+        return
+    if verbose_only and not get_verbose():
         return
     colors.warning(text, end=end, start=start, force=force)
 
 
-def log_minus(text: str, end: str | None = None, start: str = "", force: bool = False) -> None:
+def log_minus(text: str, end: str | None = None, start: str = "", force: bool = False, verbose_only: bool = False) -> None:
     if get_quiet():
+        return
+    if verbose_only and not get_verbose():
         return
     colors.minus(text, end=end, start=start, force=force)
 
 
-def log_question(text: str, end: str | None = None, start: str = "", force: bool = False) -> None:
+def log_question(text: str, end: str | None = None, start: str = "", force: bool = False, verbose_only: bool = False) -> None:
     if get_quiet():
         return
     colors.question(text, end=end, start=start, force=force)

@@ -112,7 +112,7 @@ def set_mac_address(interface: str, mac: str, profile: str | None = None) -> boo
     curr = get_current_mac(interface)
     success = bool((curr and curr.lower() == clean_mac) or rc_ip == 0 or rc_mc == 0)
     if success:
-        log_plus(f"MAC address changed to {clean_mac} on {interface}.", force=True)
+        log_plus(f"MAC address changed to {clean_mac} on {interface}.", verbose_only=True)
     else:
         log_minus(f"Failed to change MAC address to {clean_mac} on {interface}.", force=True)
     return success
