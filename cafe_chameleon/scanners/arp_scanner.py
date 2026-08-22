@@ -13,7 +13,10 @@ def scan_subnet(
     interface: str,
     gateway_ip: str | None = None,
     gateway_mac: str | None = None,
-    timeout: float = 2.0
+    timeout: float = 2.0,
+    parent_net=None,
+    silent: bool = False,
+    **kwargs
 ) -> list[dict]:
     """
     Executes a fast, direct Scapy broadcast ARP sweep over the subnet to force all
@@ -42,10 +45,11 @@ def scan_subnet(
                     if is_valid_ipv4(ip_src, subnet_cidr=target_net_str):
                         discovered[ip_src] = mac_src
     except Exception as e:
-        log_scan(f"[-] Scapy ARP scan warning on {interface}: {e}")
+        if not silent:
+            log_scan(f"[-] Scapy ARP scan warning on {interface}: {e}")
 
     # Harvest / merge with Nmap scan to guarantee comprehensive results
-    nmap_results = nmap_scan_subnet(subnet_cidr, interface, gateway_ip=gateway_ip, gateway_mac=gateway_mac, silent=True)
+    nmap_results = nmap_scan_subnet(subnet_cidr, interface, parent_net=parent_net, gateway_ip=gateway_ip, gateway_mac=gateway_mac, silent=silent)
     for host in nmap_results:
         discovered.setdefault(host["ip"], host["mac"].lower())
 

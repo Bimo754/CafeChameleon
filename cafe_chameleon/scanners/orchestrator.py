@@ -6,7 +6,18 @@ from cafe_chameleon.ui.console import set_scan_status, log_scan
 from cafe_chameleon.utils.blacklist import is_blacklisted, load_blacklist
 
 
-def deep_scan_subnet(subnet_cidr, interface: str, gateway_ip: str | None = None, gateway_mac: str | None = None, local_ip: str | None = None, local_mac: str | None = None, duration: int = 30) -> list[dict]:
+def deep_scan_subnet(
+    subnet_cidr,
+    interface: str,
+    gateway_ip: str | None = None,
+    gateway_mac: str | None = None,
+    local_ip: str | None = None,
+    local_mac: str | None = None,
+    duration: int = 30,
+    parent_net=None,
+    silent: bool = False,
+    **kwargs
+) -> list[dict]:
     """
     Combines:
     1. 30-second passive traffic sniffing
@@ -16,7 +27,8 @@ def deep_scan_subnet(subnet_cidr, interface: str, gateway_ip: str | None = None,
     """
     hosts_map = {}
     set_scan_status(subnet=subnet_cidr, count=0, scan_type="Passive Traffic Sniffing (30s)")
-    log_scan(f"[*] Starting Passive Traffic Sniffing on {subnet_cidr}...")
+    if not silent:
+        log_scan(f"[*] Starting Passive Traffic Sniffing on {subnet_cidr}...")
 
     # Phase 1: Passive traffic capture
     passive_hosts = passive_sniff_subnet(subnet_cidr, interface, duration=duration)
@@ -24,18 +36,20 @@ def deep_scan_subnet(subnet_cidr, interface: str, gateway_ip: str | None = None,
         hosts_map[h["ip"]] = h["mac"]
 
     set_scan_status(subnet=subnet_cidr, count=len(hosts_map), scan_type="Active Scapy ARP Probe")
-    log_scan(f"[+] Passive scan complete ({len(passive_hosts)} hosts). Dispatching ARP Probes...")
+    if not silent:
+        log_scan(f"[+] Passive scan complete ({len(passive_hosts)} hosts). Dispatching ARP Probes...")
 
     # Phase 2: Active Scapy ARP scan
-    active_hosts = scan_subnet(subnet_cidr, interface, gateway_ip=gateway_ip, gateway_mac=gateway_mac)
+    active_hosts = scan_subnet(subnet_cidr, interface, parent_net=parent_net, gateway_ip=gateway_ip, gateway_mac=gateway_mac, silent=silent)
     for h in active_hosts:
         hosts_map[h["ip"]] = h["mac"]
 
     set_scan_status(subnet=subnet_cidr, count=len(hosts_map), scan_type="Fast Nmap SYN Scan")
-    log_scan(f"[+] ARP scan complete ({len(active_hosts)} hosts). Dispatching Nmap Endpoint Sweep...")
+    if not silent:
+        log_scan(f"[+] ARP scan complete ({len(active_hosts)} hosts). Dispatching Nmap Endpoint Sweep...")
 
     # Phase 3: Nmap user endpoint scan
-    nmap_hosts = nmap_scan_subnet(subnet_cidr, interface)
+    nmap_hosts = nmap_scan_subnet(subnet_cidr, interface, parent_net=parent_net, gateway_ip=gateway_ip, gateway_mac=gateway_mac, silent=silent)
     for h in nmap_hosts:
         hosts_map[h["ip"]] = h["mac"]
 

@@ -95,6 +95,29 @@ class TestActiveTargetDiscoveryFixes(unittest.TestCase):
         self.assertEqual(results[0]["ip"], "192.168.1.200")
         self.assertEqual(results[0]["mac"], "02:00:00:99:88:77")
 
+    @patch("scapy.all.srp")
+    @patch("cafe_chameleon.scanners.arp_scanner.nmap_scan_subnet")
+    def test_scan_subnet_accepts_parent_net_and_silent(self, mock_nmap_scan, mock_srp):
+        mock_nmap_scan.return_value = []
+        mock_srp.return_value = ([], [])
+
+        # Ensure scan_subnet accepts parent_net and silent kwargs without TypeError
+        results = scapy_scan_subnet(
+            "192.168.1.0/24",
+            interface="wlan0",
+            parent_net="192.168.0.0/16",
+            silent=True
+        )
+        self.assertEqual(results, [])
+        mock_nmap_scan.assert_called_once_with(
+            "192.168.1.0/24",
+            "wlan0",
+            parent_net="192.168.0.0/16",
+            gateway_ip=None,
+            gateway_mac=None,
+            silent=True
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
