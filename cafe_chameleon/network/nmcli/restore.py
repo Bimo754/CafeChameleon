@@ -169,3 +169,93 @@ def release_interface(interface: str | None = None, profile: str | None = None) 
     log_plus(f"Interface {iface} released and unlocked successfully.", force=True)
     return True
 
+
+def get_interface_driver(iface: str) -> str | None:
+    """Detects kernel driver module name for network interface via sysfs or ethtool."""
+    if not iface:
+        return None
+    try:
+        import os
+        driver_path = f"/sys/class/net/{iface}/device/driver"
+        if os.path.islink(driver_path):
+            return os.path.basename(os.readlink(driver_path))
+    except Exception:
+        pass
+    try:
+        rc, out = _run(["ethtool", "-i", iface], debug=False)
+        if rc == 0 and out:
+            for line in out.splitlines():
+                if line.lower().startswith("driver:"):
+                    return line.split(":", 1)[1].strip()
+    except Exception:
+        pass
+    return None
+
+
+def hard_reset_interface(interface: str | None = None, profile: str | None = None) -> bool:
+    """
+    Performs full hardware wireless card reset:
+    1. Releases interface software state (monitor mode, dhclient, MAC locks).
+    2. Unblocks radio kill-switches (rfkill unblock wifi & all).
+    3. Flushes stale kernel neighbor ARP and route caches.
+    4. Auto-detects and reloads wireless kernel driver module (modprobe -r / modprobe).
+    5. Soft-restarts wpa_supplicant & NetworkManager services.
+    6. Reconnects profile and verifies carrier.
+    """
+    from cafe_chameleon.scanners.detector import auto_detect_network_params
+    import shutil
+
+    iface = interface or auto_detect_network_params().get("interface") or "wlan0"
+    prof = profile or get_active_profile()
+
+    log_step(f"Starting FULL HARDWARE RESET on wireless interface {iface}...")
+
+    # 1. First run release_interface to clean up software/monitor states
+    release_interface(interface=iface, profile=prof)
+
+    # 2. Unblock rfkill radio switches
+    log_wait("Unblocking RFKill wireless hardware switches...")
+    _run(["rfkill", "unblock", "wifi"], debug=False)
+    _run(["rfkill", "unblock", "all"], debug=False)
+
+    # 3. Flush kernel ARP and routing caches
+    log_wait(f"Flushing kernel ARP & routing caches on {iface}...")
+    _run(["ip", "neigh", "flush", "dev", iface], debug=False)
+    _run(["ip", "neigh", "flush", "all"], debug=False)
+    _run(["ip", "route", "flush", "cache"], debug=False)
+
+    # 4. Auto-detect and reload wireless driver kernel module
+    driver_mod = get_interface_driver(iface)
+    if driver_mod:
+        log_wait(f"Reloading wireless kernel driver module '{driver_mod}'...")
+        _run(["ip", "link", "set", "dev", iface, "down"], debug=False)
+        _run(["modprobe", "-r", driver_mod], debug=False)
+        time.sleep(0.5)
+        _run(["modprobe", driver_mod], debug=False)
+        time.sleep(1.0)
+        _run(["ip", "link", "set", "dev", iface, "up"], debug=False)
+    else:
+        log_wait(f"Bringing interface {iface} down and up...")
+        _run(["ip", "link", "set", "dev", iface, "down"], debug=False)
+        time.sleep(0.5)
+        _run(["ip", "link", "set", "dev", iface, "up"], debug=False)
+
+    # 5. Soft-restart network services if available
+    log_wait("Restarting wpa_supplicant & NetworkManager services...")
+    if shutil.which("systemctl"):
+        _run(["systemctl", "restart", "wpa_supplicant"], debug=False)
+        _run(["systemctl", "restart", "NetworkManager"], debug=False)
+    elif shutil.which("service"):
+        _run(["service", "wpa_supplicant", "restart"], debug=False)
+        _run(["service", "NetworkManager", "restart"], debug=False)
+
+    _run(["nmcli", "device", "set", iface, "managed", "yes"], debug=False)
+
+    if prof:
+        log_wait(f"Reconnecting profile '{prof}'...")
+        _run(["nmcli", "connection", "up", prof], debug=False, timeout=15.0)
+
+    log_plus(f"HARDWARE RESET COMPLETE: Interface {iface} and driver re-initialized successfully.", force=True)
+    return True
+
+

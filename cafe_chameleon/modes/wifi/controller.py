@@ -6,8 +6,9 @@ import sys
 
 from cafe_chameleon.ui.console import log_minus
 from cafe_chameleon.network.mac import is_valid_mac
-from cafe_chameleon.network.nmcli import show_status, show_wifi_scan, show_mac, lock_bssid, restore_auto, reset_mac, release_interface, change_mac, reconnect_wifi
+from cafe_chameleon.network.nmcli import show_status, show_wifi_scan, show_mac, lock_bssid, restore_auto, reset_mac, release_interface, hard_reset_interface, change_mac, reconnect_wifi
 from cafe_chameleon.network.hotspot import share_wifi_hotspot
+
 
 
 def run_wifi(args) -> None:
@@ -148,6 +149,34 @@ def run_wifi(args) -> None:
                 prof = " ".join(rel_args[1:]).strip() if len(rel_args) > 1 else None
 
         if not release_interface(interface=iface, profile=prof):
+            sys.exit(1)
+    elif getattr(args, "hard_reset", None) is not None:
+        hr_args = args.hard_reset
+        iface = None
+        prof = None
+        if len(hr_args) == 1:
+            arg = hr_args[0]
+            if is_valid_mac(arg):
+                prof = arg
+            elif arg.startswith(("wlan", "wlp", "eth", "en", "mon")):
+                iface = arg
+            else:
+                prof = arg
+        elif len(hr_args) >= 2:
+            iface_idx = None
+            for idx, arg in enumerate(hr_args):
+                if arg.startswith(("wlan", "wlp", "eth", "en", "mon")):
+                    iface_idx = idx
+                    break
+            if iface_idx is not None:
+                iface = hr_args[iface_idx]
+                prof_parts = [a for i, a in enumerate(hr_args) if i != iface_idx]
+                prof = " ".join(prof_parts).strip() if prof_parts else None
+            else:
+                iface = hr_args[0]
+                prof = " ".join(hr_args[1:]).strip() if len(hr_args) > 1 else None
+
+        if not hard_reset_interface(interface=iface, profile=prof):
             sys.exit(1)
     elif getattr(args, "reconnect", None) is not None:
         rec_args = args.reconnect

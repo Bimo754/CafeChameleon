@@ -186,6 +186,10 @@ def parse_arguments(args=None):
         help="Release and unlock wireless interface (stop monitor mode, dhclient, and restore NetworkManager)"
     )
     wifi_mut.add_argument(
+        "-hr", "--hard-reset", nargs="*", metavar="INTERFACE", dest="hard_reset",
+        help="Perform full hardware wireless card reset (reload kernel driver module, unblock rfkill, flush ARP/route caches, restart services)"
+    )
+    wifi_mut.add_argument(
         "-c", "--reconnect", nargs="*", metavar="MODE",
         help="Reconnect to already connected BSSID with active MAC & IP ('auto' for continuous reconnect, 'deauth' for continuous reconnect with defensive deauth)"
     )
