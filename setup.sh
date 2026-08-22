@@ -41,6 +41,12 @@ APT_PACKAGES=(
     isc-dhcp-client
     ethtool
     arping
+    hostapd
+    dnsmasq
+    iptables
+    git
+    build-essential
+    make
 )
 
 PACMAN_PACKAGES=(
@@ -59,6 +65,12 @@ PACMAN_PACKAGES=(
     dhcpcd
     ethtool
     arping
+    hostapd
+    dnsmasq
+    iptables
+    git
+    make
+    gcc
 )
 
 DNF_PACKAGES=(
@@ -77,6 +89,12 @@ DNF_PACKAGES=(
     dhcp-client
     ethtool
     iputils
+    hostapd
+    dnsmasq
+    iptables
+    git
+    make
+    gcc
 )
 
 # Detect Package Manager
@@ -92,6 +110,21 @@ elif command -v dnf &> /dev/null; then
     dnf install -y "${DNF_PACKAGES[@]}"
 else
     echo -e "${BOLD}${YELLOW}[!] Warning: Unknown package manager. Please ensure required network tools are installed manually.${RESET}"
+fi
+
+# Build and install create_ap from source if not already present
+if ! command -v create_ap &> /dev/null; then
+    echo -e "\n${BOLD}${YELLOW}[+] 'create_ap' CLI binary not found. Building linux-wifi-hotspot from source...${RESET}"
+    BUILD_DIR=$(mktemp -d)
+    if git clone --depth 1 https://github.com/lakinduakash/linux-wifi-hotspot.git "$BUILD_DIR/linux-wifi-hotspot"; then
+        make -C "$BUILD_DIR/linux-wifi-hotspot/src/scripts" install-cli-only
+        echo -e "${BOLD}${GREEN}[+] Successfully built and installed 'create_ap' CLI binary!${RESET}"
+    else
+        echo -e "${BOLD}${RED}[-] Warning: Failed to clone linux-wifi-hotspot. Please install create_ap manually.${RESET}"
+    fi
+    rm -rf "$BUILD_DIR"
+else
+    echo -e "\n${BOLD}${GREEN}[+] 'create_ap' CLI binary is already installed.${RESET}"
 fi
 
 echo -e "\n${BOLD}${YELLOW}[+] Installing Python package dependencies (scapy)...${RESET}"
@@ -117,3 +150,4 @@ echo -e "${BOLD}${GREEN}[+] You can now run the tool globally using either comma
 echo -e "    ${BOLD}sudo cafechameleon wifi --status${RESET}"
 echo -e "    ${BOLD}sudo cafe-chameleon simple${RESET}"
 echo -e "${BOLD}${CYAN}────────────────────────────────────────────────────────────────────────${RESET}\n"
+
