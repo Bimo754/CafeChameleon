@@ -2,11 +2,15 @@
 CafeChameleon Python Package Installer
 """
 
+import re
 from setuptools import setup, find_packages
+
+with open("cafe_chameleon/__init__.py", encoding="utf-8") as f:
+    version = re.search(r'__version__\s*=\s*["\']([^"\']+)["\']', f.read()).group(1)
 
 setup(
     name="cafe_chameleon",
-    version="2.0.0",
+    version=version,
     description="Layer 2 Captive Portal Security Auditing Framework",
     author="Bimo754",
     url="https://github.com/Bimo754/CafeChameleon",
