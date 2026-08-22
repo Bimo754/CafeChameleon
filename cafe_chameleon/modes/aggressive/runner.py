@@ -266,7 +266,7 @@ def run_aggressive(args) -> bool:
                     target_lock_msg = f"[*] Connecting to {target_bssid}..." if any_bssid_mode else f"Locking {target_bssid} ({signal_pct}%, Ch {chan})"
                     if not lock_bssid(target_bssid, profile, any_bssid=any_bssid_mode, lock_msg=target_lock_msg):
                         if not is_air_only and not any_bssid_mode and get_verbose():
-                            log_main(f"  [!] Lock failed: {target_bssid}")
+                            log_main(f"[!] Lock failed: {target_bssid}")
                         continue
 
                     wait_for_carrier(interface, timeout=6.0)
@@ -404,7 +404,7 @@ def run_aggressive(args) -> bool:
         if is_blacklisted(target_bssid, blacklist):
             trace(f"[FEATURE] Skipping blacklisted target BSSID: {target_bssid}")
             if not is_air_only:
-                log_main(f"  [-] Skipping blacklisted BSSID: {target_bssid}")
+                log_main(f"[-] Skipping blacklisted BSSID: {target_bssid}")
             continue
 
         signal_pct = item["signal"]
@@ -435,7 +435,7 @@ def run_aggressive(args) -> bool:
             target_lock_msg = f"[*] Connecting to {target_bssid}..." if any_bssid_mode else f"Locking {target_bssid} ({signal_pct}%, Ch {chan})"
             if not lock_bssid(target_bssid, profile, any_bssid=any_bssid_mode, lock_msg=target_lock_msg):
                 if not is_air_only and not any_bssid_mode and get_verbose():
-                    log_main(f"  [!] Lock failed: {target_bssid}")
+                    log_main(f"[!] Lock failed: {target_bssid}")
                 continue
 
             wait_for_carrier(interface, timeout=6.0)
@@ -489,7 +489,7 @@ def run_aggressive(args) -> bool:
 
             log_warning(f"No internet on BSSID {target_bssid}. Moving next...")
             if not is_air_only and not any_bssid_mode:
-                log_main(f"  [-] No internet on BSSID {target_bssid}.")
+                log_main(f"[-] No internet on BSSID {target_bssid}.")
 
         except (KeyboardInterrupt, MainSkipInterrupt):
             now = time.time()
