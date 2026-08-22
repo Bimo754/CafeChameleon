@@ -556,6 +556,70 @@ class TestAirOnlyExecution(unittest.TestCase):
             self.assertNotIn("Continuous Air-Only hunting mode active", msg)
             self.assertNotIn("Skipping subnet scanning", msg)
 
+    @patch("cafe_chameleon.modes.aggressive.runner.is_monitor_mode_active", return_value=False)
+    @patch("cafe_chameleon.modes.aggressive.runner.auto_detect_network_params", return_value={"interface": "wlan0"})
+    @patch("cafe_chameleon.modes.aggressive.runner.get_active_profile", return_value="Cafe_WiFi")
+    @patch("cafe_chameleon.modes.aggressive.runner.get_ssid_for_profile", return_value="Cafe_SSID")
+    @patch("cafe_chameleon.modes.aggressive.runner.has_internet", return_value=False)
+    @patch("cafe_chameleon.modes.aggressive.runner.scan_bssids_for_ssid")
+    @patch("cafe_chameleon.modes.aggressive.runner.sniff_air_clients")
+    @patch("cafe_chameleon.modes.aggressive.runner.lock_bssid", return_value=True)
+    @patch("cafe_chameleon.modes.aggressive.runner.wait_for_carrier", return_value=True)
+    @patch("cafe_chameleon.modes.aggressive.runner.set_mac_address", return_value=True)
+    @patch("cafe_chameleon.modes.aggressive.runner.test_air_client_targets")
+    def test_air_only_zero_continuous_loop_skips_failed_targets_within_cooldown(
+        self,
+        mock_test_air_targets,
+        mock_set_mac,
+        mock_wait_carrier,
+        mock_lock_bssid,
+        mock_sniff_air,
+        mock_scan_bssids,
+        mock_has_internet,
+        mock_get_ssid,
+        mock_get_profile,
+        mock_auto_params,
+        mock_is_mon
+    ):
+        mock_scan_bssids.return_value = [
+            {"bssid": "11:22:33:44:55:66", "signal": "80", "chan": "1", "security": "OPEN"},
+        ]
+        air_map = AirClientsMap(
+            {"11:22:33:44:55:66": {"00:11:22:33:44:01": "10.0.0.10"}},
+            client_metadata={"00:11:22:33:44:01": {"active": True, "bssid": "11:22:33:44:55:66"}}
+        )
+        mock_sniff_air.side_effect = [air_map, air_map, KeyboardInterrupt()]
+
+        def simulate_test_targets(new_clients, interface, target_bssid, chan, profile, tried_macs, *args, **kwargs):
+            if isinstance(tried_macs, dict):
+                import time
+                for mac in new_clients:
+                    tried_macs[mac.lower()] = time.time()
+            return (False, False)
+
+        mock_test_air_targets.side_effect = simulate_test_targets
+
+        args = argparse.Namespace(
+            profile="Cafe_WiFi",
+            interface="wlan0",
+            air=None,
+            air_only=0,
+            any_bssid=False,
+            any_ip=False,
+            force=False,
+            select_bssid=False,
+            clients=False,
+            threshold=10,
+            passive_only=False,
+            force_deauth=False
+        )
+
+        with patch("time.sleep", return_value=None):
+            with self.assertRaises(KeyboardInterrupt):
+                run_aggressive(args)
+
+        self.assertEqual(mock_test_air_targets.call_count, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

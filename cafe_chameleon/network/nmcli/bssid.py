@@ -10,8 +10,9 @@ from typing import Any
 
 from cafe_chameleon.models import BSSIDTarget
 from cafe_chameleon.utils.process import _run
+from cafe_chameleon.utils.state import get_verbose, is_launcher_mode
 from cafe_chameleon.utils.tracing import trace
-from cafe_chameleon.ui.console import log_plus, log_warning, log_minus, log_step, log_wait
+from cafe_chameleon.ui.console import log_plus, log_warning, log_minus, log_step, log_wait, log_main
 from .profiles import get_active_profile, get_ssid_for_profile
 
 DIGIT_REGEX = re.compile(r"[^\d]")
@@ -384,7 +385,13 @@ def get_connected_bssid(interface: str = "wlan0") -> str:
     return ""
 
 
-def lock_bssid(target_bssid: str | None = None, profile: str | None = None, max_retries: int = 3) -> bool:
+def lock_bssid(
+    target_bssid: str | None = None,
+    profile: str | None = None,
+    max_retries: int = 3,
+    any_bssid: bool = False,
+    lock_msg: str | None = None
+) -> bool:
     profile = profile or get_active_profile()
     if not profile:
         log_minus("Error: No active Wi-Fi profile detected.")
@@ -401,7 +408,13 @@ def lock_bssid(target_bssid: str | None = None, profile: str | None = None, max_
     trace(f"[FEATURE] Locking profile '{profile}' to BSSID {target_bssid} (Max retries: {max_retries})")
     log_step(f"Locking BSSID -> {target_bssid} (profile: {profile})...")
 
+    is_quiet_launcher = is_launcher_mode() and not any_bssid and not get_verbose()
+    main_lock_msg = lock_msg or f"[*] Locking to BSSID {target_bssid}..."
+
     for attempt in range(1, max_retries + 1):
+        if is_quiet_launcher:
+            log_main(main_lock_msg)
+
         if attempt > 1:
             log_wait(f"Retry {attempt}/{max_retries} -> BSSID: {target_bssid}...")
 
@@ -437,6 +450,8 @@ def lock_bssid(target_bssid: str | None = None, profile: str | None = None, max_
             log_warning(f"Lock attempt {attempt}/{max_retries} failed -> Current: {connected_bssid or 'None'}")
 
     trace(f"[FEATURE] Failed to lock profile '{profile}' to BSSID {target_bssid} after {max_retries} attempts")
+    if is_quiet_launcher:
+        log_main(f"  [!] Lock failed: {target_bssid}")
     log_minus(f"Lock failed after {max_retries} attempts -> Skipping {target_bssid}")
     return False
 

