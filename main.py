@@ -12,13 +12,14 @@ Subcommands:
 from cafe_chameleon.cli.parser import parse_arguments
 from cafe_chameleon.utils.state import set_debug, set_quiet, set_verbose, set_launcher_mode, set_use_xterm, set_use_original_mac, get_debug_tracing
 from cafe_chameleon.utils.tracing import trace, log_exception_to_trace, get_recent_trace, get_trace_filepath
-from cafe_chameleon.utils.signals import restore_and_exit
+from cafe_chameleon.utils.signals import restore_and_exit, register_signal_handler
 from cafe_chameleon.ui.console import init_xterm
 from cafe_chameleon.scanners.detector import check_interface_warning
 from cafe_chameleon.ui.colors import BOLD, GREEN, RED, YELLOW, RESET, colorize_brackets
 
 
 def main():
+    register_signal_handler()
     try:
         args = parse_arguments()
 

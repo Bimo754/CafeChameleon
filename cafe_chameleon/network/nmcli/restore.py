@@ -108,7 +108,7 @@ def release_interface(interface: str | None = None, profile: str | None = None) 
     5. Restores NetworkManager device management and brings interface up in clean managed state.
     """
     from cafe_chameleon.scanners.detector import auto_detect_network_params, find_suitable_interface
-    from cafe_chameleon.scanners.air import is_monitor_mode_active, set_managed_mode, get_monitor_interface
+    from cafe_chameleon.scanners.air import is_monitor_mode_active, set_managed_mode, get_monitor_interface, get_base_interface
     from cafe_chameleon.network.mac import reset_mac_address
     from cafe_chameleon.network.sysfs import wait_for_carrier
     from cafe_chameleon.utils.state import get_restore_params
@@ -120,31 +120,31 @@ def release_interface(interface: str | None = None, profile: str | None = None) 
         profile = restore_p.get("profile")
 
     if not interface:
-        params = auto_detect_network_params(target_iface=None)
-        cand_iface = params.get("interface")
-        if cand_iface and not cand_iface.startswith("eth") and not cand_iface.startswith("en"):
-            interface = cand_iface
+        mon_cand = get_monitor_interface("wlan0")
+        if mon_cand and mon_cand != "wlan0":
+            interface = get_base_interface(mon_cand)
         else:
-            mon_cand = get_monitor_interface("wlan0")
-            if mon_cand and mon_cand != "wlan0":
-                interface = "wlan0"
+            params = auto_detect_network_params(target_iface=None)
+            cand_iface = params.get("interface")
+            if cand_iface and not cand_iface.startswith("eth") and not cand_iface.startswith("en"):
+                interface = cand_iface
             else:
                 interface = find_suitable_interface() or "wlan0"
 
-    iface = interface or "wlan0"
+    base_iface = get_base_interface(interface or "wlan0")
     prof = profile or get_active_profile()
 
-    trace(f"[FEATURE] Releasing and unlocking interface {iface} (Profile: {prof or 'None'})")
-    log_step(f"Releasing and unlocking interface {iface}...")
+    trace(f"[FEATURE] Releasing and unlocking interface {base_iface} (Profile: {prof or 'None'})")
+    log_step(f"Releasing and unlocking interface {base_iface}...")
 
     # 1. Terminate lingering dhclient processes on this interface
-    log_wait(f"Terminating any lingering background DHCP processes on {iface}...")
-    _run(f"pkill -9 -f 'dhclient.*{iface}'", debug=False)
+    log_wait(f"Terminating any lingering background DHCP processes on {base_iface}...")
+    _run(f"pkill -9 -f 'dhclient.*{base_iface}'", debug=False)
 
     # 2. Restore from monitor mode if active
-    if is_monitor_mode_active(iface):
-        log_wait(f"Restoring {iface} from monitor mode to managed station mode...")
-        set_managed_mode(iface)
+    if is_monitor_mode_active(base_iface) or is_monitor_mode_active(interface or ""):
+        log_wait(f"Restoring {base_iface} from monitor mode to managed station mode...")
+        set_managed_mode(base_iface)
 
     # 3. Clear BSSID lock and cloned MAC on connection profile
     if prof:
@@ -153,20 +153,20 @@ def release_interface(interface: str | None = None, profile: str | None = None) 
         _run(["nmcli", "connection", "modify", prof, "802-11-wireless.cloned-mac-address", ""], debug=False)
 
     # 4. Reset MAC address to permanent hardware default
-    log_wait(f"Resetting hardware MAC address on {iface}...")
-    reset_mac_address(iface, profile=prof)
+    log_wait(f"Resetting hardware MAC address on {base_iface}...")
+    reset_mac_address(base_iface, profile=prof)
 
     # 5. Ensure device is marked managed in NetworkManager
-    log_wait(f"Ensuring NetworkManager management enabled on {iface}...")
-    _run(["nmcli", "device", "set", iface, "managed", "yes"], debug=False)
+    log_wait(f"Ensuring NetworkManager management enabled on {base_iface}...")
+    _run(["nmcli", "device", "set", base_iface, "managed", "yes"], debug=False)
 
     # 6. Reconnect profile if available
     if prof:
         log_wait(f"Reconnecting profile '{prof}'...")
         _run(["nmcli", "connection", "up", prof], debug=False, timeout=15.0)
 
-    wait_for_carrier(iface, timeout=4.0)
-    log_plus(f"Interface {iface} released and unlocked successfully.", force=True)
+    wait_for_carrier(base_iface, timeout=4.0)
+    log_plus(f"Interface {base_iface} released and unlocked successfully.", force=True)
     return True
 
 

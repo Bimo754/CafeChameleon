@@ -2,7 +2,7 @@
 cafe_chameleon.scanners.air - 802.11 Monitor Mode Over-The-Air Client Discovery package.
 """
 
-from .mode import get_monitor_interface, set_monitor_mode, set_managed_mode, is_monitor_mode_active
+from .mode import get_monitor_interface, set_monitor_mode, set_managed_mode, is_monitor_mode_active, get_base_interface
 from .sniffer import (
     sniff_air_clients,
     AirClientsMap,
@@ -24,6 +24,7 @@ __all__ = [
     "set_monitor_mode",
     "set_managed_mode",
     "is_monitor_mode_active",
+    "get_base_interface",
     "sniff_air_clients",
     "AirClientsMap",
     "calculate_channel_signals",

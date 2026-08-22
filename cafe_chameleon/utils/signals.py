@@ -55,11 +55,13 @@ def close_xterm():
 
 
 def restore_and_exit(reason: str = "Terminated."):
-    """Releases interface cleanly on termination and exits process, ignoring subsequent Ctrl+C signals."""
-    # Catch and ignore all further SIGINT/SIGTERM signals so user Ctrl+C cannot abort cleanup midway
+    """Releases interface cleanly on termination and exits process, ignoring subsequent Ctrl+C / kill signals."""
+    # Catch and ignore all further SIGINT/SIGTERM/SIGHUP signals so cleanup cannot be aborted midway
     try:
         signal.signal(signal.SIGINT, signal.SIG_IGN)
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        if hasattr(signal, "SIGHUP"):
+            signal.signal(signal.SIGHUP, signal.SIG_IGN)
     except Exception:
         pass
 
@@ -125,5 +127,21 @@ def sigint_handler(sig, frame):
         raise KeyboardInterrupt()
 
 
+def sigterm_handler(sig, frame):
+    restore_and_exit(f"Process received signal {sig} (window or terminal session closed).")
+
+
 def register_signal_handler():
-    signal.signal(signal.SIGINT, sigint_handler)
+    try:
+        signal.signal(signal.SIGINT, sigint_handler)
+    except Exception:
+        pass
+    try:
+        signal.signal(signal.SIGTERM, sigterm_handler)
+    except Exception:
+        pass
+    if hasattr(signal, "SIGHUP"):
+        try:
+            signal.signal(signal.SIGHUP, sigterm_handler)
+        except Exception:
+            pass

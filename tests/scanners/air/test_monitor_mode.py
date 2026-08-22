@@ -183,6 +183,25 @@ class TestMonitorModeCleanup(unittest.TestCase):
         self.assertEqual(mon, "wlan0")
         mock_run.assert_any_call(["iw", "dev", "wlan0", "set", "type", "monitor"], debug=False)
 
+    def test_get_base_interface(self):
+        from cafe_chameleon.scanners.air.mode import get_base_interface
+        self.assertEqual(get_base_interface("wlan0mon"), "wlan0")
+        self.assertEqual(get_base_interface("wlp2s0mon"), "wlp2s0")
+        self.assertEqual(get_base_interface("wlan0"), "wlan0")
+
+    @patch("cafe_chameleon.scanners.air.mode.wait_for_carrier")
+    @patch("cafe_chameleon.scanners.air.mode._run")
+    @patch("shutil.which", return_value=None)
+    def test_set_managed_mode_normalizes_monitor_interface_to_base(self, mock_which, mock_run, mock_carrier):
+        mock_run.return_value = (0, "wlan0 connected")
+        set_managed_mode("wlan0mon")
+
+        called_cmds = [call_args[0][0] if isinstance(call_args[0][0], list) else call_args[0][0] for call_args in mock_run.call_args_list]
+        flattened = [" ".join(c) if isinstance(c, list) else str(c) for c in called_cmds]
+
+        self.assertTrue(any("iw dev wlan0 set type managed" in s for s in flattened))
+        self.assertTrue(any("nmcli device set wlan0 managed yes" in s for s in flattened))
+
 
 if __name__ == "__main__":
     unittest.main()
