@@ -94,8 +94,8 @@ else
     echo -e "${BOLD}${YELLOW}[!] Warning: Unknown package manager. Please ensure required network tools are installed manually.${RESET}"
 fi
 
-echo -e "\n${BOLD}${YELLOW}[+] Installing Python package dependencies (scapy, pytest)...${RESET}"
-python3 -m pip install --upgrade scapy pytest --break-system-packages 2>/dev/null || python3 -m pip install --upgrade scapy pytest
+echo -e "\n${BOLD}${YELLOW}[+] Installing Python package dependencies (scapy)...${RESET}"
+python3 -m pip install --upgrade scapy --break-system-packages 2>/dev/null || python3 -m pip install --upgrade scapy
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MAIN_PATH="${SCRIPT_DIR}/main.py"

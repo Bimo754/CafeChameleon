@@ -135,7 +135,7 @@ CafeChameleon/
 * **Python**: Python 3.10 or higher.
 
 ### Automated Setup (Recommended)
-Run the automated installation script to install all required Linux system tools (`nmap`, `iw`, `network-manager`, `xterm`, `aircrack-ng`, `mdk4`, `macchanger`, `dhcpcd`/`dhclient`, `ethtool`, `arping`), Python packages (`scapy`, `pytest`), and create a global `cafe-chameleon` CLI wrapper:
+Run the automated installation script to install all required Linux system tools (`nmap`, `iw`, `network-manager`, `xterm`, `aircrack-ng`, `mdk4`, `macchanger`, `dhcpcd`/`dhclient`, `ethtool`, `arping`), runtime Python dependencies (`scapy`), and create a global `cafe-chameleon` CLI wrapper:
 
 ```bash
 git clone https://github.com/Bimo754/CafeChameleon.git
@@ -150,8 +150,8 @@ If you prefer installing dependencies manually:
 # Debian / Ubuntu / Kali
 sudo apt update && sudo apt install -y python3-pip nmap iw wireless-tools net-tools network-manager xterm aircrack-ng mdk4 macchanger isc-dhcp-client ethtool arping
 
-# Python dependencies
-pip3 install scapy pytest
+# Python runtime dependencies
+pip3 install -r requirements.txt
 ```
 
 ---
@@ -242,8 +242,10 @@ python3 main.py blacklist remove 00:11:22:33:44:55
 python3 main.py blacklist list
 ```
 
-### Running Test Suite
+### Development & Running Test Suite
+For developers wishing to run the unit test suite, install development dependencies first:
 ```bash
+pip3 install -r requirements-dev.txt
 python3 -m pytest tests/
 ```
 

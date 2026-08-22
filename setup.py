@@ -15,6 +15,11 @@ setup(
     install_requires=[
         "scapy>=2.5.0",
     ],
+    extras_require={
+        "dev": [
+            "pytest>=7.0.0",
+        ],
+    },
     entry_points={
         "console_scripts": [
             "cafechameleon=main:main",
