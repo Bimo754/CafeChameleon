@@ -8,4 +8,6 @@ blacklist.txt
 .codegraph/
 highValueMacIgnoreMeInGithubCommits.txt
 tempCommands.txt
+.obsidian/
+
 
