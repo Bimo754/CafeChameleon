@@ -73,12 +73,10 @@ def log_subnet_scan(subnet: str) -> None:
 
 
 def log_hijack_attempt(ip: str, mac: str) -> None:
-    """Logs host hijacking attempt with clean single spacing."""
+    """Logs host hijacking attempt to the launcher terminal window with clean single spacing."""
     clean_ip = str(ip).strip() if ip else "N/A"
     clean_mac = str(mac).strip() if mac else "N/A"
     text = f"Trying to hijack {clean_ip} - {clean_mac}"
-    if is_xterm_running():
-        XtermManager._instance.write("main", format_window_text("main", text), add_newline=True)
     if not get_quiet():
         print(colors.colorize_brackets(text), flush=True)
 
