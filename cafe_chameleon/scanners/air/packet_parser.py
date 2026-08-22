@@ -503,6 +503,9 @@ def parse_air_packet(
                         old_bssid = b_cand
                         break
 
+                import time
+                now_ts = time.time()
+
                 if old_bssid is None:
                     # First time seeing this client station
                     bssid_to_clients[matched_bssid][client_candidate] = client_ip
@@ -518,6 +521,8 @@ def parse_air_packet(
                             "mgmt_count": 1 if (dot11.type == 0 and not is_probe) else 0,
                             "total_count": 1,
                             "is_laa": is_laa,
+                            "last_seen": now_ts,
+                            "active_timestamps": [now_ts] if is_active_frame else [],
                         }
 
                 elif old_bssid == matched_bssid:
@@ -538,10 +543,17 @@ def parse_air_packet(
                             "mgmt_count": 0,
                             "total_count": 0,
                             "is_laa": is_laa,
+                            "last_seen": now_ts,
+                            "active_timestamps": [],
                         })
                         meta["priority"] = max(meta.get("priority", 1), frame_priority)
+                        meta["last_seen"] = now_ts
                         if is_active_frame:
                             meta["active"] = True
+                            ats = meta.setdefault("active_timestamps", [])
+                            ats.append(now_ts)
+                            # Keep timestamps from last 10 seconds
+                            meta["active_timestamps"] = [t for t in ats if (now_ts - t) <= 10.0]
                         if curr_rssi is not None:
                             prev_rssi = meta.get("rssi")
                             meta["rssi"] = curr_rssi if prev_rssi is None else max(prev_rssi, curr_rssi)
@@ -601,6 +613,9 @@ def parse_air_packet(
                             old_probe = meta.get("probe_count", 0) if (client_metadata and client_candidate in client_metadata) else 0
                             old_mgmt = meta.get("mgmt_count", 0) if (client_metadata and client_candidate in client_metadata) else 0
                             old_total = meta.get("total_count", 0) if (client_metadata and client_candidate in client_metadata) else 0
+                            old_ats = meta.get("active_timestamps", []) if (client_metadata and client_candidate in client_metadata) else []
+                            if is_active_frame:
+                                old_ats.append(now_ts)
                             client_metadata[client_candidate] = {
                                 "bssid": matched_bssid,
                                 "priority": frame_priority,
@@ -612,6 +627,8 @@ def parse_air_packet(
                                 "mgmt_count": old_mgmt + (1 if (dot11.type == 0 and not is_probe) else 0),
                                 "total_count": old_total + 1,
                                 "is_laa": is_laa,
+                                "last_seen": now_ts,
+                                "active_timestamps": [t for t in old_ats if (now_ts - t) <= 10.0],
                             }
                     else:
                         # Retain binding on old_bssid, but update IP if newly discovered
@@ -619,7 +636,14 @@ def parse_air_packet(
                             bssid_to_clients[old_bssid][client_candidate] = client_ip
                             if client_metadata is not None and client_candidate in client_metadata:
                                 client_metadata[client_candidate]["ip"] = client_ip
-                        if is_active_frame and client_metadata is not None and client_candidate in client_metadata:
-                            client_metadata[client_candidate]["active"] = True
+                        if client_metadata is not None and client_candidate in client_metadata:
+                            meta = client_metadata[client_candidate]
+                            meta["last_seen"] = now_ts
+                            if is_active_frame:
+                                meta["active"] = True
+                                ats = meta.setdefault("active_timestamps", [])
+                                ats.append(now_ts)
+                                meta["active_timestamps"] = [t for t in ats if (now_ts - t) <= 10.0]
     except Exception:
         pass
+

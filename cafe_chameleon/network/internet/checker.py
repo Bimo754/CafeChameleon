@@ -145,7 +145,7 @@ def verify_internet_connectivity(
         exec_sock = concurrent.futures.ThreadPoolExecutor(max_workers=len(PUBLIC_DNS_ENDPOINTS))
         try:
             sock_futures = [exec_sock.submit(_probe_socket, ep, min(0.6, timeout)) for ep in PUBLIC_DNS_ENDPOINTS]
-            for future in concurrent.futures.as_completed(sock_futures, timeout=min(0.8, timeout)):
+            for future in concurrent.futures.as_completed(sock_futures, timeout=max(1.5, timeout)):
                 if future.result():
                     socket_ok = True
                     break

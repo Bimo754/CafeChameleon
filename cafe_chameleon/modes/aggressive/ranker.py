@@ -8,6 +8,34 @@ from cafe_chameleon.utils.blacklist import is_blacklisted, load_blacklist
 DIGIT_REGEX = re.compile(r"[^\d]")
 
 
+def get_client_traffic_velocity(mac: str, air_clients_map: dict | None = None, window_seconds: float = 5.0) -> float:
+    """Calculates active packet velocity (packets per second over rolling window) for a client MAC."""
+    if not mac or not air_clients_map:
+        return 0.0
+    mac_lower = mac.lower()
+    meta_dict = getattr(air_clients_map, "client_metadata", None)
+    if not isinstance(meta_dict, dict) or mac_lower not in meta_dict:
+        return 0.0
+    meta = meta_dict[mac_lower]
+    if not isinstance(meta, dict):
+        return 0.0
+    ats = meta.get("active_timestamps", [])
+    if not ats:
+        return 0.0
+    import time
+    now = time.time()
+    recent_count = sum(1 for t in ats if (now - t) <= window_seconds)
+    return round(recent_count / max(1.0, window_seconds), 2)
+
+
+def calculate_bssid_velocity(bssid: str, air_clients_map: dict | None = None) -> float:
+    """Calculates aggregate active traffic velocity across all clients for a BSSID."""
+    active_macs = get_active_clients_for_bssid(bssid, air_clients_map)
+    if not active_macs:
+        return 0.0
+    return sum(get_client_traffic_velocity(m, air_clients_map) for m in active_macs)
+
+
 def is_client_active(mac: str, air_clients_map: dict | None = None) -> bool:
     """Checks if a client MAC address is recorded as having active data session traffic."""
     if not mac or not air_clients_map:

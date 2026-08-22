@@ -479,6 +479,7 @@ def sniff_air_clients(
         client_metadata = {}
 
         def air_packet_callback(pkt):
+            prev_active_count = sum(1 for m in client_metadata.values() if isinstance(m, dict) and m.get("active"))
             parse_air_packet(
                 pkt,
                 target_bssids_set,
@@ -488,6 +489,13 @@ def sniff_air_clients(
                 DHCP=DHCP,
                 client_metadata=client_metadata
             )
+            curr_active_count = sum(1 for m in client_metadata.values() if isinstance(m, dict) and m.get("active"))
+            if curr_active_count > prev_active_count and 'hopper' in locals() and hopper:
+                try:
+                    hopper.boost_current_dwell(1.5)
+                except Exception:
+                    pass
+
             if trigger_on_active and effective_duration == 0 and not active_triggered_event.is_set():
                 has_active = any(
                     isinstance(meta, dict) and meta.get("active")

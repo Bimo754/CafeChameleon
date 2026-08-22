@@ -177,3 +177,37 @@ class ClientStimulator:
             pass
 
         return sent_count
+
+    def stimulate_active_targets(self, target_bssid: str, client_macs: list[str]) -> int:
+        """
+        Transmits directed 802.11 Null Data keep-alive micro-pulses to specific client MAC addresses
+        to prompt their Wi-Fi chips to exit 802.11 Power Save Mode and send ACK/Data frames.
+        """
+        if not self.enabled or not client_macs:
+            return 0
+
+        try:
+            from scapy.all import sendp, RadioTap, Dot11
+        except ImportError:
+            return 0
+
+        pkts = []
+        for c_mac in client_macs[:8]:
+            if not c_mac or c_mac in ("ff:ff:ff:ff:ff:ff", "00:00:00:00:00:00"):
+                continue
+            # Null Data frame addressed directly to target client MAC from target BSSID (FromDS=1)
+            pkt = (
+                RadioTap() /
+                Dot11(type=2, subtype=4, FCfield=2, addr1=c_mac.lower(), addr2=target_bssid.lower(), addr3=target_bssid.lower())
+            )
+            pkts.append(pkt)
+
+        if not pkts:
+            return 0
+
+        try:
+            sendp(pkts, iface=self.interface, count=1, inter=0.005, verbose=False)
+            return len(pkts)
+        except Exception:
+            return 0
+
