@@ -20,7 +20,7 @@ from cafe_chameleon.network.mac import get_current_mac, get_permanent_mac, is_va
 from cafe_chameleon.network.arp import send_gratuitous_arp, start_background_garp, pin_gateway_neighbor
 from cafe_chameleon.network.deauth import send_deauth
 from cafe_chameleon.network.hotspot import is_hotspot_active
-from cafe_chameleon.network.internet import has_internet, wait_for_gateway_pong
+from cafe_chameleon.network.internet import has_internet, wait_for_gateway_pong, wait_for_session_establishment
 from .profiles import get_active_profile, get_ssid_for_profile
 from .bssid import get_connected_bssid, scan_bssids_for_ssid
 
@@ -166,8 +166,9 @@ def soft_heal_connection(
             if gateway_mac:
                 pin_gateway_neighbor(gateway, gateway_mac, interface)
             wait_for_gateway_pong(gateway_ip=gateway, interface=interface, timeout=1.5)
+            wait_for_session_establishment(gateway_ip=gateway, interface=interface, timeout=2.0)
 
-    return has_internet(timeout=1.0, check_speed=False, gateway_ip=gateway, interface=interface, ping_gateway=False)
+    return has_internet(timeout=1.0, check_speed=False, gateway_ip=gateway, interface=interface, ping_gateway=False, wait_for_session=False)
 
 
 def perform_reconnect(

@@ -6,6 +6,7 @@ from .checker import has_internet, verify_internet_connectivity, ConnectivityRes
 from .speed import test_internet_speed
 from .gateway import (
     wait_for_gateway_pong,
+    wait_for_session_establishment,
     ping_gateway_once,
     arp_ping_gateway_once,
     check_gateway_neighbor_table,
@@ -19,6 +20,7 @@ __all__ = [
     "ConnectivityState",
     "test_internet_speed",
     "wait_for_gateway_pong",
+    "wait_for_session_establishment",
     "ping_gateway_once",
     "arp_ping_gateway_once",
     "check_gateway_neighbor_table",

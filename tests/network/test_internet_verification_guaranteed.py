@@ -17,7 +17,8 @@ from cafe_chameleon.network.internet.gateway import (
     check_gateway_neighbor_table,
     _probe_gateway_tcp,
     arp_ping_gateway_once,
-    wait_for_gateway_pong
+    wait_for_gateway_pong,
+    wait_for_session_establishment
 )
 from cafe_chameleon.network.nmcli.connectivity import get_nmcli_connectivity
 
@@ -170,3 +171,12 @@ class TestGuaranteedInternetVerification(unittest.TestCase):
         # ConnectionRefused indicates gateway host sent RST -> host reachable!
         mock_sock.connect.side_effect = ConnectionRefusedError()
         self.assertTrue(_probe_gateway_tcp("192.168.1.1", ports=[80]))
+
+    @patch("cafe_chameleon.network.internet.gateway._probe_socket")
+    def test_wait_for_session_establishment_success(self, mock_probe_socket):
+        mock_probe_socket.return_value = True
+        log_mock = MagicMock()
+        res = wait_for_session_establishment("192.168.1.1", timeout=1.0, log_cb=log_mock)
+        self.assertTrue(res)
+        log_mock.assert_any_call("[*] Verifying network session establishment...")
+        log_mock.assert_any_call("[+] Network session confirmed active!")

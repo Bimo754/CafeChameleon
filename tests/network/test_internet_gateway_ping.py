@@ -213,7 +213,7 @@ class TestInternetGatewayPing(unittest.TestCase):
         self.assertTrue(res)
         mock_gw_pong.assert_called_once_with(gateway_ip="10.0.0.1", interface="wlan0", timeout=3.5)
         mock_internet.assert_called_once_with(
-            timeout=1.0, check_speed=False, gateway_ip="10.0.0.1", interface="wlan0", ping_gateway=False
+            timeout=1.0, check_speed=False, gateway_ip="10.0.0.1", interface="wlan0", ping_gateway=False, wait_for_session=False
         )
 
     @patch("cafe_chameleon.network.hijack.impersonate.start_background_garp")
@@ -255,7 +255,7 @@ class TestInternetGatewayPing(unittest.TestCase):
         self.assertTrue(res)
         mock_gw_pong.assert_not_called()
         mock_internet.assert_called_once_with(
-            timeout=1.0, check_speed=False, gateway_ip="10.0.0.1", interface="wlan0", ping_gateway=False
+            timeout=1.0, check_speed=False, gateway_ip="10.0.0.1", interface="wlan0", ping_gateway=False, wait_for_session=False
         )
 
     def test_cli_parser_simple_no_gateway(self):

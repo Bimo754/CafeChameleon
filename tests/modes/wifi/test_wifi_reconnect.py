@@ -165,7 +165,7 @@ class TestWifiReconnect(unittest.TestCase):
         mock_garp.assert_called_once_with("wlan0", "192.168.1.100", "192.168.1.1")
         mock_pin.assert_called_once_with("192.168.1.1", "00:aa:bb:cc:dd:ee", "wlan0")
         mock_gw_pong.assert_called_once_with(gateway_ip="192.168.1.1", interface="wlan0", timeout=1.5)
-        mock_internet.assert_called_once_with(timeout=1.0, check_speed=False, gateway_ip="192.168.1.1", interface="wlan0", ping_gateway=False)
+        mock_internet.assert_called_once_with(timeout=1.0, check_speed=False, gateway_ip="192.168.1.1", interface="wlan0", ping_gateway=False, wait_for_session=False)
 
     @patch("cafe_chameleon.network.nmcli.reconnect.start_background_garp")
     @patch("cafe_chameleon.network.nmcli.reconnect.soft_heal_connection")

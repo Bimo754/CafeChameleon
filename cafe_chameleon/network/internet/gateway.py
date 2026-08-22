@@ -11,6 +11,9 @@ import ipaddress
 from cafe_chameleon.utils.process import _run
 from cafe_chameleon.utils.tracing import trace
 
+from collections.abc import Callable
+from .sockets import _probe_socket, _probe_dns_resolution
+
 GW_VIA_REGEX = re.compile(r"via\s+([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)")
 
 
@@ -216,3 +219,66 @@ def wait_for_gateway_pong(
 
     trace(f"[-] Gateway {resolved_ip} ping timed out after {timeout}s (no pong received)")
     return False
+
+
+def wait_for_session_establishment(
+    gateway_ip: str | None = None,
+    interface: str | None = None,
+    timeout: float = 3.0,
+    poll_interval: float = 0.25,
+    log_cb: Callable | None = None
+) -> bool:
+    """
+    Verifies that the network session has fully established and settled following
+    gateway reachability or connection association.
+
+    Prevents false positive captive portal detections or false negative internet checks
+    caused by probing immediately while the router/gateway firewall is still synchronizing
+    session info, NAT/conntrack bindings, or RADIUS table rules.
+    """
+    from cafe_chameleon.config import PUBLIC_DNS_ENDPOINTS
+
+    resolved_gw = gateway_ip or get_default_gateway_ip(interface)
+    start_t = time.time()
+
+    if log_cb:
+        log_cb("[*] Verifying network session establishment...")
+    trace(f"[FEATURE] Verifying network session establishment (Timeout: {timeout}s, GW: {resolved_gw or 'Auto'})")
+
+    success_streak = 0
+    required_streak = 1
+
+    while time.time() - start_t < timeout:
+        remaining = timeout - (time.time() - start_t)
+        if remaining <= 0:
+            break
+
+        session_active = False
+
+        # 1. Probe public socket endpoint
+        for ep in PUBLIC_DNS_ENDPOINTS[:2]:
+            if _probe_socket(ep, timeout=min(0.4, remaining)):
+                session_active = True
+                break
+
+        # 2. If raw socket probe is unconfirmed, test DNS resolution probe
+        if not session_active:
+            if _probe_dns_resolution("connectivitycheck.gstatic.com", timeout=min(0.5, remaining)):
+                session_active = True
+
+        if session_active:
+            success_streak += 1
+            if success_streak >= required_streak:
+                elapsed_ms = (time.time() - start_t) * 1000
+                trace(f"[FEATURE] Network session confirmed active & settled in {elapsed_ms:.1f}ms")
+                if log_cb:
+                    log_cb("[+] Network session confirmed active!")
+                return True
+        else:
+            success_streak = 0
+
+        time.sleep(poll_interval)
+
+    trace(f"[FEATURE] Session establishment polling window completed ({timeout}s elapsed)")
+    return False
+

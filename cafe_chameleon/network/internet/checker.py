@@ -8,6 +8,7 @@ import dataclasses
 import concurrent.futures
 import urllib.request
 import urllib.error
+from collections.abc import Callable
 
 from cafe_chameleon.config import (
     PUBLIC_DNS_ENDPOINTS,
@@ -19,7 +20,7 @@ from cafe_chameleon.config import (
 from cafe_chameleon.utils.tracing import trace
 from .sockets import _probe_socket, _probe_dns_resolution
 from .speed import test_internet_speed
-from .gateway import wait_for_gateway_pong
+from .gateway import wait_for_gateway_pong, wait_for_session_establishment
 
 
 class ConnectivityState(str, enum.Enum):
@@ -118,7 +119,10 @@ def verify_internet_connectivity(
     gateway_ip: str | None = None,
     interface: str | None = None,
     ping_gateway: bool = False,
-    gateway_timeout: float = 2.0
+    gateway_timeout: float = 2.0,
+    wait_for_session: bool = False,
+    session_timeout: float = 3.0,
+    log_cb: Callable | None = None
 ) -> ConnectivityResult:
     """
     Comprehensive multi-stage internet reachability and captive portal verification.
@@ -128,7 +132,7 @@ def verify_internet_connectivity(
     start_t = time.time()
     res = ConnectivityResult(state=ConnectivityState.UNKNOWN)
 
-    # 1. Gateway reachability check
+    # 1. Gateway reachability check & Network Session Establishment Verification
     if ping_gateway:
         gw_ok = wait_for_gateway_pong(gateway_ip=gateway_ip, interface=interface, timeout=gateway_timeout)
         res.gateway_reachable = gw_ok
@@ -136,8 +140,12 @@ def verify_internet_connectivity(
             res.state = ConnectivityState.NO_GATEWAY
             res.latency_ms = (time.time() - start_t) * 1000
             return res
+        if gw_ok and wait_for_session:
+            wait_for_session_establishment(gateway_ip=gateway_ip, interface=interface, timeout=session_timeout, log_cb=log_cb)
     else:
         res.gateway_reachable = True
+        if wait_for_session:
+            wait_for_session_establishment(gateway_ip=gateway_ip, interface=interface, timeout=session_timeout, log_cb=log_cb)
 
     # 2. Fast-track non-strict mode check via raw sockets
     if not strict:
@@ -275,7 +283,10 @@ def has_internet(
     gateway_ip: str | None = None,
     interface: str | None = None,
     ping_gateway: bool = False,
-    gateway_timeout: float = 2.0
+    gateway_timeout: float = 2.0,
+    wait_for_session: bool = False,
+    session_timeout: float = 3.0,
+    log_cb: Callable | None = None
 ) -> bool:
     """
     Guaranteed multi-stage internet verification check to guard against fake internet,
@@ -289,6 +300,10 @@ def has_internet(
         gateway_ip=gateway_ip,
         interface=interface,
         ping_gateway=ping_gateway,
-        gateway_timeout=gateway_timeout
+        gateway_timeout=gateway_timeout,
+        wait_for_session=wait_for_session,
+        session_timeout=session_timeout,
+        log_cb=log_cb
     )
     return res.is_authenticated
+

