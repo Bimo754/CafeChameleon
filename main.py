@@ -52,7 +52,7 @@ def main():
         if warn_msg:
             print(colorize_brackets(f"{YELLOW}[!] {warn_msg}{RESET}"))
 
-        if getattr(args, "no_xterm", False) or cmd in ("wifi", "blacklist"):
+        if getattr(args, "no_xterm", False) or cmd in ("wifi", "blacklist", "animation"):
             set_use_xterm(False)
         else:
             has_air = getattr(args, "air", None) is not None

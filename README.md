@@ -1,27 +1,12 @@
 # CafeChameleon
 
-```text
-                                       _       _._
-                                _,,-''' ''-,_ }'._''.,_.=._
-                             ,-'      _ _    '        (  @)'-,
-                           ,'  _..==;;::_::'-     __..----'''}
-                          :  .'::_;==''       ,'',: : : '' '}
-                         }  '::-'            /   },: : : :_,'
-                        :  :'     _..,,_    '., '._-,,,--\'    _
-                       :  ;   .-'       :      '-, ';,__\.\_.-'
-                      {   '  :    _,,,   :__,,--::',,}___}^}_.-'
-                      }        _,'__''',  ;_.-''_.-'
-                     :      ,':-''  ';, ;  ;_..-'
-                 _.-' }    ,',' ,''',  : ^^
-                 _.-''{    { ; ; ,', '  :
-    ______      ____  }   } :  ;_,' ;  }  ________                         __
-   / ____/___ _/ __/__ {   ',',___,'   ' / ____/ /_  ____ _____ ___  ___  / /__  ____  ____
-  / /   / __ `/ /_/ _ \ ',           ,' / /   / __ \/ __ `/ __ `__ \/ _ \/ / _ \/ __ \/ __ \
- / /___/ /_/ / __/  __/   '-,,__,,-'   / /___/ / / / /_/ / / / / / /  __/ /  __/ /_/ / / / /
- \____/\__,_/_/  \___/                 \____/_/ /_/\__,_/_/ /_/ /_/\___/_/\___/\____/_/ /_/
+<p align="center">
+  <img src="gif/chameleon_animation.gif" alt="CafeChameleon ASCII Animation" width="100%">
+</p>
 
-               Layer 2 Captive Portal Security Auditing Framework
-```
+<p align="center">
+  <b>Layer 2 Captive Portal Security Auditing Framework</b>
+</p>
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
@@ -92,6 +77,9 @@ sudo cafechameleon wifi --lock 08:FA:28:56:27:80
 
 # Manage blacklisted MAC addresses
 cafechameleon blacklist list
+
+# Play Chameleon ASCII completion animation
+sudo cafechameleon animation r
 ```
 
 For comprehensive CLI arguments, operational workflows, and advanced flags, refer to the [USAGE Guide](USAGE.md).
