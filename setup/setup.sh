@@ -138,6 +138,9 @@ else
     python3 -m pip install --upgrade scapy --break-system-packages 2>/dev/null || python3 -m pip install --upgrade scapy
 fi
 
+echo -e "\n${BOLD}${YELLOW}[+] Installing CafeChameleon Python package...${RESET}"
+python3 -m pip install -e "${SCRIPT_DIR}" --break-system-packages 2>/dev/null || python3 -m pip install -e "${SCRIPT_DIR}" 2>/dev/null || true
+
 MAIN_PATH="${REPO_DIR}/main.py"
 BIN_LINK_1="/usr/local/bin/cafechameleon"
 BIN_LINK_2="/usr/local/bin/cafe-chameleon"
