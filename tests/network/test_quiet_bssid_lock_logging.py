@@ -109,7 +109,7 @@ class TestQuietBSSIDLockLogging(unittest.TestCase):
     @patch("cafe_chameleon.network.nmcli.bssid.get_ssid_for_profile", return_value="Cafe_SSID")
     @patch("cafe_chameleon.network.nmcli.bssid.get_connected_bssid", return_value="11:22:33:44:55:66")
     @patch("cafe_chameleon.network.nmcli.bssid.log_main")
-    def test_any_bssid_enabled_suppresses_quiet_launcher_log_main(
+    def test_any_bssid_enabled_logs_locking_message_in_quiet_launcher(
         self,
         mock_log_main,
         mock_get_conn_bssid,
@@ -117,10 +117,12 @@ class TestQuietBSSIDLockLogging(unittest.TestCase):
         mock_get_profile,
         mock_run
     ):
-        """When any_bssid is True, quiet launcher per-bssid lock_main logging is bypassed."""
+        """When any_bssid is True, quiet launcher still logs BSSID lock message to log_main."""
         result = lock_bssid("11:22:33:44:55:66", "Cafe_WiFi", max_retries=3, any_bssid=True)
         self.assertTrue(result)
-        mock_log_main.assert_not_called()
+        self.assertEqual(mock_log_main.call_count, 1)
+        logged_msg = mock_log_main.call_args[0][0]
+        self.assertIn("11:22:33:44:55:66", logged_msg)
 
 
 if __name__ == "__main__":

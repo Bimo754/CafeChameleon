@@ -408,7 +408,7 @@ def lock_bssid(
     trace(f"[FEATURE] Locking profile '{profile}' to BSSID {target_bssid} (Max retries: {max_retries})")
     log_step(f"Locking BSSID -> {target_bssid} (profile: {profile})...")
 
-    is_quiet_launcher = is_launcher_mode() and not any_bssid and not get_verbose()
+    is_quiet_launcher = is_launcher_mode() and not get_verbose()
     main_lock_msg = lock_msg or f"[*] Locking to BSSID {target_bssid}..."
 
     for attempt in range(1, max_retries + 1):
