@@ -53,13 +53,27 @@ CafeChameleon is developed for authorized security auditing, defensive research,
 
 ### Installation
 
-Run the automated installation script to install system dependencies (`nmap`, `iw`, `network-manager`, `xterm`, `aircrack-ng`, `macchanger`), Python packages, and global CLI binaries:
+Run the automated setup script to install system dependencies (`nmap`, `iw`, `network-manager`, `xterm`, `aircrack-ng`, `macchanger`), Python package requirements (`scapy`), and global CLI binaries (`cafechameleon`, `cafe-chameleon`):
 
 ```bash
 git clone https://github.com/Bimo754/CafeChameleon.git
 cd CafeChameleon
-sudo ./setup.sh
+
+# Execute automated setup
+sudo ./setup/setup.sh
 ```
+
+### Setup Directory Overview
+
+All installation, setup, and dependency configuration files are centralized inside the `setup/` directory:
+
+* `setup/setup.sh`: Automated Linux package manager and dependency installer.
+* `setup/setup.py`: Python setuptools package setup configuration.
+* `setup/requirements.txt`: Core Python package requirements (`scapy>=2.5.0`).
+* `setup/requirements-dev.txt`: Development dependencies for test suites (`pytest>=7.0.0`).
+* `setup/pytest.ini`: Pytest configuration file.
+
+
 
 ### Basic Usage
 

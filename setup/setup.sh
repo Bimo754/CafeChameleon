@@ -17,7 +17,7 @@ echo -e "${BOLD}${CYAN}───────────────────
 
 # Ensure script is executed with root privileges
 if [ "$EUID" -ne 0 ]; then
-    echo -e "${BOLD}${RED}[-] Error: This setup script must be run as root (use sudo ./setup.sh).${RESET}"
+    echo -e "${BOLD}${RED}[-] Error: This setup script must be run as root (e.g. sudo ./setup/setup.sh).${RESET}"
     exit 1
 fi
 
@@ -127,11 +127,18 @@ else
     echo -e "\n${BOLD}${GREEN}[+] 'create_ap' CLI binary is already installed.${RESET}"
 fi
 
-echo -e "\n${BOLD}${YELLOW}[+] Installing Python package dependencies (scapy)...${RESET}"
-python3 -m pip install --upgrade scapy --break-system-packages 2>/dev/null || python3 -m pip install --upgrade scapy
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MAIN_PATH="${SCRIPT_DIR}/main.py"
+REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+REQUIREMENTS_PATH="${SCRIPT_DIR}/requirements.txt"
+
+echo -e "\n${BOLD}${YELLOW}[+] Installing Python package dependencies...${RESET}"
+if [ -f "$REQUIREMENTS_PATH" ]; then
+    python3 -m pip install --upgrade -r "$REQUIREMENTS_PATH" --break-system-packages 2>/dev/null || python3 -m pip install --upgrade -r "$REQUIREMENTS_PATH"
+else
+    python3 -m pip install --upgrade scapy --break-system-packages 2>/dev/null || python3 -m pip install --upgrade scapy
+fi
+
+MAIN_PATH="${REPO_DIR}/main.py"
 BIN_LINK_1="/usr/local/bin/cafechameleon"
 BIN_LINK_2="/usr/local/bin/cafe-chameleon"
 
@@ -150,4 +157,3 @@ echo -e "${BOLD}${GREEN}[+] You can now run the tool globally using either comma
 echo -e "    ${BOLD}sudo cafechameleon wifi --status${RESET}"
 echo -e "    ${BOLD}sudo cafe-chameleon simple${RESET}"
 echo -e "${BOLD}${CYAN}────────────────────────────────────────────────────────────────────────${RESET}\n"
-

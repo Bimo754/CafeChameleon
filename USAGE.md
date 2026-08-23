@@ -289,8 +289,8 @@ CafeChameleon includes a `pytest` test suite covering BSSID scoring algorithms, 
 
 ```bash
 # Install development dependencies
-pip install -r requirements-dev.txt
+pip install -r setup/requirements-dev.txt
 
 # Execute test suite
-python3 -m pytest tests/
+python3 -m pytest -c setup/pytest.ini
 ```
