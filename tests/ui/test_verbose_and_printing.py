@@ -68,8 +68,10 @@ def test_log_hijack_attempt_even_spacing(capsys):
     log_hijack_attempt("192.168.1.100", "00:11:22:33:44:55")
     line2 = capsys.readouterr().out.strip()
 
-    assert "Trying to hijack 10.0.0.1 - 00:11:22:33:44:55" in line1
-    assert "Trying to hijack 192.168.1.100 - 00:11:22:33:44:55" in line2
+    clean_line1 = colors.ANSI_PATTERN.sub("", line1)
+    clean_line2 = colors.ANSI_PATTERN.sub("", line2)
+    assert "[*] Trying to hijack 10.0.0.1 - 00:11:22:33:44:55" in clean_line1
+    assert "[*] Trying to hijack 192.168.1.100 - 00:11:22:33:44:55" in clean_line2
 
 
 def test_log_main_verbose_filtering(capsys):

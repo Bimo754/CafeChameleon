@@ -71,8 +71,7 @@ def main():
                 active_windows = ["main", "air", "scan", "hijack"]
 
             if init_xterm(active_windows=active_windows):
-                count = len(active_windows)
-                print(colorize_brackets(f"[+] Multi-Window Xterm UI active ({count} centered window{'s' if count != 1 else ''} spawned)."))
+                print(colorize_brackets("[i] The chameleon is ready to blend into target's sessions."))
 
         cmd = getattr(args, "command", "")
         trace(f"[FEATURE] Running subcommand '{cmd}' (Original MAC: {getattr(args, 'original_mac', False)})")
