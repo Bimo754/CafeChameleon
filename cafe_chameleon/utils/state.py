@@ -94,6 +94,18 @@ def get_use_xterm() -> bool:
     return USE_XTERM
 
 
+NO_ANIMATION: bool = False
+
+
+def set_no_animation(val: bool) -> None:
+    global NO_ANIMATION
+    NO_ANIMATION = val
+
+
+def get_no_animation() -> bool:
+    return NO_ANIMATION
+
+
 def set_restore_params(interface: str, local_mac: str, ipmask: str, broadcast: str, gw_ip: str, callback=None, profile: str | None = None) -> None:
     global _RESTORE_PARAMS, _RESTORE_CALLBACK
     _RESTORE_PARAMS = {
@@ -114,3 +126,4 @@ def get_restore_params() -> dict | None:
 
 def get_restore_callback():
     return _RESTORE_CALLBACK
+

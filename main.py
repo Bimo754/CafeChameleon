@@ -10,7 +10,11 @@ Subcommands:
 """
 
 from cafe_chameleon.cli.parser import parse_arguments
-from cafe_chameleon.utils.state import set_debug, set_quiet, set_verbose, set_launcher_mode, set_use_xterm, set_use_original_mac, get_debug_tracing
+from cafe_chameleon.utils.state import (
+    set_debug, set_quiet, set_verbose, set_launcher_mode,
+    set_use_xterm, set_use_original_mac, set_no_animation,
+    get_no_animation, get_debug_tracing
+)
 from cafe_chameleon.utils.tracing import trace, log_exception_to_trace, get_recent_trace, get_trace_filepath
 from cafe_chameleon.utils.signals import restore_and_exit, register_signal_handler
 from cafe_chameleon.ui.console import init_xterm
@@ -35,6 +39,9 @@ def main():
 
         if getattr(args, "verbose", False):
             set_verbose(True)
+
+        if getattr(args, "no_animation", False):
+            set_no_animation(True)
 
         cmd = getattr(args, "command", "")
         set_launcher_mode(cmd in ("simple", "aggressive"))
@@ -73,6 +80,10 @@ def main():
         if cmd in ("aggressive", "simple"):
             if result:
                 print(colorize_brackets(f"\n{BOLD}{GREEN}[+] Operation Complete: Internet Access Granted!{RESET}\n"))
+                if not get_no_animation():
+                    from cafe_chameleon.ui.xterm import XtermManager
+                    if XtermManager.is_active():
+                        XtermManager.get_instance().play_completion_animation()
             else:
                 print(colorize_brackets(f"\n{BOLD}{RED}[-] Operation Complete: No Internet Access Secured.{RESET}\n"))
                 iface_arg = getattr(args, "interface", None)

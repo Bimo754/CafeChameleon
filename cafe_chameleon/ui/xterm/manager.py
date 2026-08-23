@@ -6,6 +6,7 @@ import atexit
 import os
 import shutil
 import subprocess
+import sys
 import threading
 import time
 
@@ -323,6 +324,29 @@ class XtermManager:
 
     def clear(self, target):
         self.write(target, "", clear=True)
+
+    def play_completion_animation(self):
+        """
+        Destroys the active split panes inside the tmux window, leaving one centered terminal,
+        and plays a random chameleon ASCII animation for 6 seconds before closing xterm.
+        """
+        if not self.enabled or self.closing:
+            return
+
+        try:
+            # Destroy extra tmux panes so pane 0 fills 100% of the xterm window
+            subprocess.run(["tmux", "kill-pane", "-a", "-t", "captive_ui:0.0"], capture_output=True)
+
+            # Respawn pane 0 running the python animation module with a random palette
+            cmd = f"{sys.executable} -m cafe_chameleon.ui.animation random"
+            subprocess.run(["tmux", "respawn-pane", "-k", "-t", "captive_ui:0.0", cmd], capture_output=True)
+
+            # Wait for the 6.0s animation to complete (+ small buffer)
+            time.sleep(6.2)
+        except Exception:
+            pass
+        finally:
+            self.close()
 
     def close(self):
         if self.closing:

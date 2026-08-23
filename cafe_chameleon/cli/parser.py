@@ -119,6 +119,7 @@ def parse_arguments(args=None):
     s_opts.add_argument("--force-deauth", action="store_true", dest="force_deauth", help="Force 802.11 deauth even on open networks")
     s_opts.add_argument("--no-gateway", action="store_true", dest="no_gateway", help="Skip gateway ping checks during host impersonation")
     s_opts.add_argument("--no-xterm", action="store_true", help="Disable multi-window UI")
+    s_opts.add_argument("--no-animation", action="store_true", dest="no_animation", help="Disable completion ASCII chameleon animation")
     simple_p.set_defaults(func=run_simple)
 
     # aggressive subcommand
@@ -150,6 +151,7 @@ def parse_arguments(args=None):
     a_opts.add_argument("--no-gateway", action="store_true", dest="no_gateway", help="Skip gateway ping checks during host impersonation")
     a_opts.add_argument("--share", nargs=2, metavar=("NAME", "PASSWORD"), dest="share", help="Automatically share Wi-Fi hotspot upon successful session hijack")
     a_opts.add_argument("--no-xterm", action="store_true", help="Disable multi-window UI")
+    a_opts.add_argument("--no-animation", action="store_true", dest="no_animation", help="Disable completion ASCII chameleon animation")
     aggressive_p.set_defaults(func=run_aggressive)
 
     # wifi subcommand (uses common_parser ONLY, no network/xterm/mac/force flags)
