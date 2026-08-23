@@ -41,6 +41,8 @@ class CleanHelpFormatter(argparse.HelpFormatter):
         if isinstance(action, argparse._SubParsersAction):
             lines = []
             for subaction in action._get_subactions():
+                if subaction.help == argparse.SUPPRESS:
+                    continue
                 cmd_header = subaction.dest
                 help_position = self._max_help_position
                 help_text = subaction.help if subaction.help else ""
@@ -222,6 +224,20 @@ def parse_arguments(args=None):
     bl_grp.add_argument("--remove", "-r", "--rm", dest="remove_mac", metavar="MAC", help="Remove MAC address from blacklist")
     bl_grp.add_argument("--list", "-l", dest="list_blacklisted", action="store_true", help="List all blacklisted MAC addresses")
     blacklist_p.set_defaults(func=run_blacklist)
+
+    # animation subcommand (hidden feature for test animation execution)
+    from cafe_chameleon.ui.animation import run_animation_subcommand
+
+    anim_p = subparsers.add_parser(
+        "animation",
+        aliases=["anim", "test-animation"],
+        help=argparse.SUPPRESS,
+        parents=[common_parser],
+        add_help=False
+    )
+    anim_p.add_argument("palette", nargs="?", default="random", help=argparse.SUPPRESS)
+    anim_p.add_argument("-d", dest="debug_short", action="store_true", help=argparse.SUPPRESS)
+    anim_p.set_defaults(func=run_animation_subcommand)
 
     parsed = parser.parse_args(args)
     return parsed

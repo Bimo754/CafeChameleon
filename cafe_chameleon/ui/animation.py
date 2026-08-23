@@ -575,5 +575,19 @@ def main():
         run_main_logic()
 
 
+def run_animation_subcommand(args):
+    """Hidden subcommand handler for running test animation through main.py."""
+    palette_arg = getattr(args, "palette", "random")
+    debug_flag = bool(getattr(args, "debug", False) or getattr(args, "debug_short", False))
+
+    new_argv = [sys.argv[0], palette_arg]
+    if debug_flag:
+        new_argv.append("--debug")
+    sys.argv = new_argv
+
+    main()
+    return True
+
+
 if __name__ == "__main__":
     main()
