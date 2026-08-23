@@ -85,8 +85,8 @@ class XtermManager:
 
         target_w = int(sw * 0.75)
         target_h = int(sh * 0.75)
-        cols = max(100, int(target_w / 8.0))
-        rows = max(35, int(target_h / 16.0))
+        cols = max(100, int(target_w / 9.6))
+        rows = max(35, int(target_h / 19.0))
         x_offset = max(0, (sw - target_w) // 2)
         y_offset = max(0, (sh - target_h) // 2)
 
@@ -100,7 +100,7 @@ class XtermManager:
             "xterm",
             "-title", "Captive Network Toolkit",
             "-geometry", f"{cols}x{rows}+{x_offset}+{y_offset}",
-            "-bg", "#0d1117",
+            "-bg", "#000000",
             "-fg", "#58a6ff",
             "-fa", "Monospace",
             "-fs", "10",
@@ -327,26 +327,15 @@ class XtermManager:
 
     def play_completion_animation(self):
         """
-        Destroys the active split panes inside the tmux window, leaving one centered terminal,
-        and plays a random chameleon ASCII animation for 6 seconds before closing xterm.
+        Launches a new dedicated pitch-black window to play the chameleon ASCII completion animation.
         """
-        if not self.enabled or self.closing:
-            return
-
         try:
-            # Destroy extra tmux panes so pane 0 fills 100% of the xterm window
-            subprocess.run(["tmux", "kill-pane", "-a", "-t", "captive_ui:0.0"], capture_output=True)
-
-            # Respawn pane 0 running the python animation module with a random palette
-            cmd = f"{sys.executable} -m cafe_chameleon.ui.animation random"
-            subprocess.run(["tmux", "respawn-pane", "-k", "-t", "captive_ui:0.0", cmd], capture_output=True)
-
-            # Wait for the 6.0s animation to complete (+ small buffer)
-            time.sleep(6.2)
+            cmd = [sys.executable, "-m", "cafe_chameleon.ui.animation", "random"]
+            env = dict(os.environ)
+            env["CAFE_ANIMATION_XTERM"] = "0"
+            subprocess.Popen(cmd, env=env)
         except Exception:
             pass
-        finally:
-            self.close()
 
     def close(self):
         if self.closing:

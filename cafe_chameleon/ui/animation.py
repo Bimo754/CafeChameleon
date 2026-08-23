@@ -527,10 +527,10 @@ def spawn_xterm_and_run():
     from cafe_chameleon.ui.xterm.screen import get_screen_resolution
     sw, sh = get_screen_resolution()
 
-    target_w = int(sw * 0.75)
-    target_h = int(sh * 0.75)
-    cols = max(100, int(target_w / 8.0))
-    rows = max(35, int(target_h / 16.0))
+    target_w = int(sw * 0.70)
+    target_h = int(sh * 0.70)
+    cols = max(100, int(target_w / 9.6))
+    rows = max(34, int(target_h / 19.0))
     x_offset = max(0, (sw - target_w) // 2)
     y_offset = max(0, (sh - target_h) // 2)
 
@@ -542,10 +542,10 @@ def spawn_xterm_and_run():
         "xterm",
         "-title", "Captive Network Toolkit - Chameleon Animation",
         "-geometry", f"{cols}x{rows}+{x_offset}+{y_offset}",
-        "-bg", "#0d1117",
-        "-fg", "#58a6ff",
+        "-bg", "#000000",
+        "-fg", "#00ffc8",
         "-fa", "Monospace",
-        "-fs", "10",
+        "-fs", "11",
         "-tn", "xterm-256color",
         "-e", f"sh -c '{inner_cmd}'"
     ]
@@ -560,10 +560,7 @@ def spawn_xterm_and_run():
 
 
 def main():
-    already_in_xterm = (
-        os.environ.get("CAFE_ANIMATION_XTERM") == "1"
-        or bool(os.environ.get("TMUX"))
-    )
+    already_in_xterm = os.environ.get("CAFE_ANIMATION_XTERM") == "1"
     can_launch_xterm = (
         bool(os.environ.get("DISPLAY"))
         and bool(shutil.which("xterm"))
