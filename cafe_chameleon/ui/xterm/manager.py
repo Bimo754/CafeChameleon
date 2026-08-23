@@ -330,9 +330,12 @@ class XtermManager:
         Launches a new dedicated pitch-black window to play the chameleon ASCII completion animation.
         """
         try:
+            repo_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
             cmd = [sys.executable, "-m", "cafe_chameleon.ui.animation", "random"]
             env = dict(os.environ)
             env["CAFE_ANIMATION_XTERM"] = "0"
+            existing_ppath = env.get("PYTHONPATH", "")
+            env["PYTHONPATH"] = f"{repo_dir}:{existing_ppath}" if existing_ppath else repo_dir
             subprocess.Popen(cmd, env=env)
         except Exception:
             pass

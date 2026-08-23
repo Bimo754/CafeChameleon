@@ -252,10 +252,7 @@ def run_aggressive(args) -> bool:
                     msg = f"[{idx}/{len(ranked_bssids)}] Target: {target_bssid} (Sig: {signal_pct}%, Ch: {chan})"
                     log_info(msg)
                     if not is_air_only:
-                        if any_bssid_mode:
-                            log_main(f"[*] Connecting to {target_bssid}...", verbose_only=True)
-                        else:
-                            log_main(f"Locking {target_bssid} ({signal_pct}%, Ch {chan})", verbose_only=True)
+                        log_main(f"Locking {target_bssid} ({signal_pct}%, Ch {chan})", verbose_only=True)
 
                     if is_monitor_mode_active(interface):
                         set_managed_mode(interface)
@@ -263,7 +260,7 @@ def run_aggressive(args) -> bool:
                     attack_mac = get_attack_mac(interface)
                     set_mac_address(interface, attack_mac, profile=profile)
 
-                    target_lock_msg = f"[*] Connecting to {target_bssid}..." if any_bssid_mode else f"Locking {target_bssid} ({signal_pct}%, Ch {chan})"
+                    target_lock_msg = f"Locking {target_bssid} ({signal_pct}%, Ch {chan})"
                     if not lock_bssid(target_bssid, profile, any_bssid=any_bssid_mode, lock_msg=target_lock_msg):
                         if not is_air_only and not any_bssid_mode and get_verbose():
                             log_main(f"[!] Lock failed: {target_bssid}")
@@ -420,10 +417,7 @@ def run_aggressive(args) -> bool:
             msg = f"[{idx}/{len(bssids)}] Target: {target_bssid} (Sig: {signal_pct}%, Ch: {chan})"
             log_info(msg)
             if not is_air_only:
-                if any_bssid_mode:
-                    log_main(f"[*] Connecting to {target_bssid}...", verbose_only=True)
-                else:
-                    log_main(f"Locking {target_bssid} ({signal_pct}%, Ch {chan})", verbose_only=True)
+                log_main(f"Locking {target_bssid} ({signal_pct}%, Ch {chan})", verbose_only=True)
 
             if is_monitor_mode_active(interface):
                 set_managed_mode(interface)
@@ -432,7 +426,7 @@ def run_aggressive(args) -> bool:
             trace(f"[FEATURE] Applying attack MAC {attack_mac} before locking to BSSID {target_bssid}")
             set_mac_address(interface, attack_mac, profile=profile)
 
-            target_lock_msg = f"[*] Connecting to {target_bssid}..." if any_bssid_mode else f"Locking {target_bssid} ({signal_pct}%, Ch {chan})"
+            target_lock_msg = f"Locking {target_bssid} ({signal_pct}%, Ch {chan})"
             if not lock_bssid(target_bssid, profile, any_bssid=any_bssid_mode, lock_msg=target_lock_msg):
                 if not is_air_only and not any_bssid_mode and get_verbose():
                     log_main(f"[!] Lock failed: {target_bssid}")

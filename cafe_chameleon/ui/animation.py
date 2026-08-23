@@ -534,9 +534,15 @@ def spawn_xterm_and_run():
     x_offset = max(0, (sw - target_w) // 2)
     y_offset = max(0, (sh - target_h) // 2)
 
+    repo_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    env = dict(os.environ)
+    existing_ppath = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = f"{repo_dir}:{existing_ppath}" if existing_ppath else repo_dir
+    env["CAFE_ANIMATION_XTERM"] = "1"
+
     args_list = sys.argv[1:]
     cmd_args = " ".join([f"'{a}'" if " " in a else a for a in args_list])
-    inner_cmd = f"CAFE_ANIMATION_XTERM=1 {sys.executable} -m cafe_chameleon.ui.animation {cmd_args}"
+    inner_cmd = f"CAFE_ANIMATION_XTERM=1 PYTHONPATH='{env['PYTHONPATH']}' {sys.executable} -m cafe_chameleon.ui.animation {cmd_args}"
 
     xterm_cmd = [
         "xterm",
@@ -549,9 +555,6 @@ def spawn_xterm_and_run():
         "-tn", "xterm-256color",
         "-e", f"sh -c '{inner_cmd}'"
     ]
-
-    env = dict(os.environ)
-    env["CAFE_ANIMATION_XTERM"] = "1"
 
     try:
         subprocess.run(xterm_cmd, env=env)
