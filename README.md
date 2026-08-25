@@ -11,34 +11,41 @@
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux-lightgrey.svg)](https://www.kernel.org/)
-[![Security](https://img.shields.io/badge/audit-Layer%202-orange.svg)](#notice)
-
-CafeChameleon is an advanced Linux network security testing framework designed to evaluate and audit Layer 2 authentication boundaries in captive portal wireless environments. It automates multi-BSSID discovery, over-the-air station telemetry, adaptive channel hopping, MAC/IP session impersonation, and connection state management within a multi-window terminal UI.
+[![Security](https://img.shields.io/badge/audit-Layer%202-orange.svg)](#overview)
 
 ---
 
-## NOTICE
+## Overview
 
-CafeChameleon is developed for authorized security auditing, defensive research, and network infrastructure testing. Users are responsible for adhering to applicable local and international cybersecurity laws and obtaining explicit authorization prior to auditing target networks.
+Public Wi-Fi captive portals frequently enforce internet access control by storing authorized device hardware (MAC) addresses after portal authentication. Because unencrypted 802.11 frame headers expose client MAC addresses in plaintext over the air, relying strictly on MAC filtering creates an unauthenticated Layer 2 security boundary.
 
----
-
-## CORE ARCHITECTURE
-
-* **Automated Subnet & Session Hijacking**: Discovers active subnet hosts, maps IP/MAC tuples, and performs rapid Layer 2 session takeover.
-* **Aggressive Multi-BSSID Roaming**: Dynamic signal-weighted channel hopping, BSSID density evaluation, and active station targeting across complex enterprise AP deployments.
-* **Over-the-Air Telemetry Engine**: Integrated 802.11 monitor mode capture extracting active station associations, RSSI metrics, and probe requests.
-* **Wi-Fi Hardware & Profile Controller**: Live BSSID locking, MAC randomization, hardware state recovery, and auto-roam algorithms.
-* **Multi-Window Terminal Interface**: Centered multi-window terminal grid separating telemetry, subnet scanning, and hijacking threads via asynchronous non-blocking FIFOs.
-* **Shielded Teardown System**: Signal-shielded cleanup routines ensuring complete restoration of network interfaces, routing tables, and NetworkManager profiles.
+CafeChameleon is a Linux network testing framework designed to evaluate captive portal security. It automates client station discovery, over-the-air frame telemetry, channel hopping, and MAC/IP session validation to establish internet access across captive portals without submitting login forms or personal credentials.
 
 ---
 
-## QUICK START
+## How It Works
+
+CafeChameleon operates across two primary discovery mechanisms depending on network environment controls:
+
+- **Subnet Host Discovery (Simple Mode)**: When subnet firewalls and AP client isolation rules are permissive, CafeChameleon sweeps the local CIDR block using ARP and ICMP probes in standard station mode. This discovers active authenticated devices and maps IP/MAC session tuples directly, without requiring monitor mode or over-the-air frame capture.
+- **Over-the-Air Telemetry (Aggressive Mode `--air`)**: In environments with strict subnet isolation, CafeChameleon switches the wireless interface into 802.11 monitor mode to passively capture radio frames, extracting active station BSSID associations and RSSI metrics directly from transmission airwaves.
+
+### Execution Workflow
+
+1. **Discovery & Telemetry**: Maps active client IP/MAC session tuples via local subnet sweeps or over-the-air 802.11 monitor mode.
+2. **Station & AP Selection**: Ranks discovered targets based on signal strength (RSSI), active traffic, and Access Point density.
+3. **Session Takeover & Access**: Updates interface MAC and IP configurations to adopt an authenticated client's session, bypassing captive portal login screens to grant full internet connectivity.
+4. **Shielded Restoration**: Executes teardown routines upon exit to restore original hardware MAC addresses, NetworkManager profiles, and system routing tables.
+
+---
+
+## Quick Start
+
+### System Prerequisites
+
+The setup script automatically manages system dependencies (`nmap`, `iw`, `network-manager`, `xterm`, `aircrack-ng`, `macchanger`) and Python requirements (`scapy`).
 
 ### Installation
-
-Run the automated setup script to install system dependencies (`nmap`, `iw`, `network-manager`, `xterm`, `aircrack-ng`, `macchanger`), Python package requirements (`scapy`), and global CLI binaries (`cafechameleon`, `cafe-chameleon`):
 
 ```bash
 git clone https://github.com/Bimo754/CafeChameleon.git
@@ -48,25 +55,13 @@ cd CafeChameleon
 sudo ./setup/setup.sh
 ```
 
-### Setup Directory Overview
-
-All installation, setup, and dependency configuration files are centralized inside the `setup/` directory:
-
-* `setup/setup.sh`: Automated Linux package manager and dependency installer.
-* `setup/setup.py`: Python setuptools package setup configuration.
-* `setup/requirements.txt`: Core Python package requirements (`scapy>=2.5.0`).
-* `setup/requirements-dev.txt`: Development dependencies for test suites (`pytest>=7.0.0`).
-* `setup/pytest.ini`: Pytest configuration file.
-
-
-
 ### Basic Usage
 
 ```bash
-# Simple subnet host discovery & session audit
+# Simple subnet host discovery & session audit (no monitor mode required)
 sudo cafechameleon simple
 
-# Aggressive multi-BSSID audit with live air telemetry
+# Aggressive multi-BSSID audit with live over-the-air telemetry
 sudo cafechameleon aggressive --air
 
 # Inspect Wi-Fi interface status and BSSID lock
@@ -82,19 +77,23 @@ cafechameleon blacklist list
 sudo cafechameleon animation r
 ```
 
-For comprehensive CLI arguments, operational workflows, and advanced flags, refer to the [USAGE Guide](USAGE.md).
+For detailed CLI subcommands, options reference, and hardware recovery commands, see [USAGE.md](USAGE.md).
 
 ---
 
-## DEFENSIVE MITIGATIONS
+## Defensive Mitigations
 
-* Deploy **802.1X / WPA3-Enterprise** to enforce cryptographic authentication prior to network access.
-* Enable **Layer 2 Client Isolation** to restrict direct station-to-station frame delivery.
-* Implement **Dynamic ARP Inspection (DAI)** and **DHCP Snooping** to defend against unauthorized MAC/IP bindings.
-* Enforce **802.11w Protected Management Frames (PMF)** to eliminate forged deauthentication frames.
+Because 802.11 MAC addresses can be changed by clients and are visible over the air, MAC filtering cannot serve as a secure access boundary. Network operators should implement standard network defense controls:
+
+- **Layer 7 Session Validation**: Authenticate network access using encrypted browser tokens, TLS session cookies, or client VPN tunnels instead of Layer 2 MAC addresses.
+- **Dynamic ARP Inspection (DAI) & DHCP Snooping**: Build dynamic switch state tables that validate physical port/MAC/IP bindings to block forged ARP responses.
+- **Duplicate MAC & Anomaly Detection**: Deploy Wireless Intrusion Detection Systems (WIDS) to alert when a single MAC address appears across multiple Access Points or sends conflicting frames.
+- **Short Session Timeouts**: Expire cached MAC authorization state when devices go idle to reduce session window availability.
+- **Passpoint / Hotspot 2.0 (802.11u)**: Deploy automated per-station WPA2/WPA3-Enterprise encryption for guest networks without relying on unencrypted portal redirects.
+
 
 ---
 
-## LICENSE
+## License
 
 Distributed under the terms of the [MIT License](LICENSE).
