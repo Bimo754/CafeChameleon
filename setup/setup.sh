@@ -64,7 +64,8 @@ PACMAN_PACKAGES=(
     iproute2
     dhcpcd
     ethtool
-    arping
+    iputils
+    tmux
     hostapd
     dnsmasq
     iptables
